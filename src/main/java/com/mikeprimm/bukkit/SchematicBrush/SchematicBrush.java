@@ -52,7 +52,15 @@ public class SchematicBrush extends JavaPlugin {
         NONE, NS, EW, RANDOM;
     }
     public static enum Rotation {
-        ROT0, ROT90, ROT180, ROT270, RANDOM
+        ROT0(0), ROT90(90), ROT180(180), ROT270(270), RANDOM(-1);
+        
+        final int deg;
+        Rotation(int deg) {
+            this.deg = deg;
+        }
+    }
+    public static enum Placement {
+        CENTER, BOTTOM, DROP
     }
     
     public CommandsManager<CommandSender> cmdmgr;
@@ -183,6 +191,7 @@ public class SchematicBrush extends JavaPlugin {
         LocalPlayer player;
         boolean skipair;
         int yoff;
+        Placement place;
         
         public void build(EditSession editsession, Vector pos,
                 com.sk89q.worldedit.patterns.Pattern mat, double size)
@@ -190,7 +199,8 @@ public class SchematicBrush extends JavaPlugin {
             SchematicDef def = set.getRandomSchematic();    // Pick schematic from set
             if (def == null) return;
             LocalSession sess = we.getSession(player);
-            if (!loadSchematicIntoClipboard(player, sess, def.name, def.format)) {
+            String schfilename = loadSchematicIntoClipboard(player, sess, def.name, def.format);
+            if (schfilename == null) {
                 return;
             }
             CuboidClipboard clip = null;
@@ -219,7 +229,34 @@ public class SchematicBrush extends JavaPlugin {
             }
             // And apply clipboard to edit session
             Vector csize = clip.getSize();
-            clip.place(editsession, pos.subtract(csize.getX() / 2, -yoff, csize.getZ() / 2), skipair);
+            Vector ppos;
+            if (place == Placement.DROP) {
+                int ybase;
+                Vector v = new Vector(0, 0, 0);
+                // Scan for lowest non-air block in clipboard
+                boolean allair = true;
+                for (ybase = 0; allair && (ybase < csize.getBlockY()); ybase++) {
+                    v.setY(ybase);
+                    for (int xx = 0; allair && (xx < csize.getBlockX()); xx++) {
+                        v.setX(xx);
+                        for (int zz = 0; allair && (zz < csize.getBlockZ()); zz++) {
+                            v.setZ(zz);
+                            if (!clip.getPoint(v).isAir()) {
+                                allair = false;
+                            }
+                        }
+                    }
+                }
+                ppos = pos.subtract(csize.getX() / 2, -yoff - ybase + 1, csize.getZ() / 2);
+            }
+            else if (place == Placement.BOTTOM) {
+                ppos = pos.subtract(csize.getX() / 2, -yoff+1, csize.getZ() / 2);
+            }
+            else { // Else, default is CENTER (same as clipboard brush
+                ppos = pos.subtract(csize.getX() / 2, (csize.getY() / 2) - yoff, csize.getZ() / 2);
+            }
+            clip.place(editsession, ppos, skipair);
+            player.print("Applied '" + schfilename + "', flip=" + flip.name() + ", rot=" + rot.deg + ", place=" + place.name());
         }
     }
    
@@ -302,7 +339,8 @@ public class SchematicBrush extends JavaPlugin {
         }
         boolean skipair = true;
         boolean replaceall = false;
-        int yoff = 1;
+        int yoff = 0;
+        Placement place = Placement.CENTER;
         for (int i = 0; i < args.length; i++) {
             if (args[i].startsWith("-")) { // Option
                 if (args[i].equals("-incair")) {
@@ -312,11 +350,19 @@ public class SchematicBrush extends JavaPlugin {
                     replaceall = true;
                 }
                 else if (args[i].startsWith("-yoff:")) {
-                    String offval = args[i].substring(6);
+                    String offval = args[i].substring(args[i].indexOf(':') + 1);
                     try {
                         yoff = Integer.parseInt(offval);
                     } catch (NumberFormatException nfx) {
                         player.printError("Bad y-offset value: " + offval);
+                    }
+                }
+                else if (args[i].startsWith("-place:")) {
+                    String pval = args[i].substring(args[i].indexOf(':') + 1).toUpperCase();
+                    place = Placement.valueOf(pval);
+                    if (place == null) {
+                        place = Placement.CENTER;
+                        player.printError("Bad place value (" + pval + ") - using CENTER");
                     }
                 }
             }
@@ -329,13 +375,14 @@ public class SchematicBrush extends JavaPlugin {
         sbi.player = player;
         sbi.skipair = skipair;
         sbi.yoff = yoff;
+        sbi.place = place;
         // Get brush tool
         BrushTool tool;
         try {
             tool = session.getBrushTool(player.getItemInHand());
             tool.setBrush(sbi, "schematicbrush.brush.use");
             if (!replaceall) {
-                tool.setMask(new BlockMask(new BaseBlock(BlockID.AIR)));
+                tool.setMask(new BlockMask(new BaseBlock(BlockID.AIR, -1)));
             }
             player.print("Schematic brush set");
         } catch (InvalidToolBindException e) {
@@ -780,11 +827,12 @@ public class SchematicBrush extends JavaPlugin {
         return fname;
     }
     
-    private boolean loadSchematicIntoClipboard(LocalPlayer player, LocalSession sess, String fname, String format) {
+    private String loadSchematicIntoClipboard(LocalPlayer player, LocalSession sess, String fname, String format) {
         File dir = we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
         String name = resolveName(player, dir, fname, "schematic");
         if (name == null) {
             player.printError("Schematic '" + fname + "' file not found");
+            return null;
         }
         File f;
         boolean rslt = false;
@@ -792,7 +840,7 @@ public class SchematicBrush extends JavaPlugin {
             f = we.getSafeOpenFile(player, dir, name, "schematic", "schematic");
             if (!f.exists()) {
                 player.printError("Schematic '" + name + "' file not found");
-                return false;
+                return null;
             }
             // Figure out format to use
             SchematicFormat fmt = format == null ? null : SchematicFormat.getFormat(format);
@@ -801,17 +849,17 @@ public class SchematicBrush extends JavaPlugin {
             }
             if (fmt == null) {
                 player.printError("Schematic '" + name + "' format not found");
-                return false;
+                return null;
             }
             if (!fmt.isOfFormat(f)) {
                 player.printError("Schematic '" + name + "' is not correct format (" + fmt.getName() + ")");
-                return false;
+                return null;
             }
             String filePath = f.getCanonicalPath();
             String dirPath = dir.getCanonicalPath();
 
             if (!filePath.substring(0, dirPath.length()).equals(dirPath)) {
-                return false;
+                return null;
             } else {
                 sess.setClipboard(fmt.load(f));
                 rslt = true;
@@ -824,6 +872,6 @@ public class SchematicBrush extends JavaPlugin {
             player.printError("Error reading schematic '" + name + "' - " + e.getMessage());
         }
 
-        return rslt;
+        return (rslt)?name:null;
     }
 }
