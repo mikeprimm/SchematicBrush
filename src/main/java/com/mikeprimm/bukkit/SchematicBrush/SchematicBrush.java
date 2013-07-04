@@ -303,6 +303,11 @@ public class SchematicBrush extends JavaPlugin {
     
     private boolean handleSCHBRCommand(CommandSender sender, Command cmd, String[] args) {
         LocalPlayer player = wep.wrapCommandSender(sender);
+        // Test for command access
+        if (!player.hasPermission("schematicbrush.brush.use")) {
+            sender.sendMessage("You do not have access to this command");
+            return true;
+        }
         if (args.length < 1) {
             player.print("Schematic brush requires &set-id or one or more schematic patterns");
             return false;
