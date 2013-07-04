@@ -12,6 +12,7 @@ commands:
        /<command> &<id> - set brush tool to use schematic set <id>
        /<command> &<id> -incair - set brush tool to use schematic set <id>, and to apply air blocks from schematics
        /<command> &<id> -replaceall - set brush tool to use schematic set <id>, and to replace existing non-air blocks
+       /<command> &<id> -place:<placement> - set brush tool to use schematic set <id>, and place using placement method <placement> (CENTER, BOTTOM, DROP)
        /<command> &<id> -yoff:<off> - set brush tool to use schematic set <id>, and to add <off> to y coordinate of schematic (default:1)
        where <schematic> can be <name>, <name>@<rot>, <name>@<rot><flip>, <name>:<weight>, <name>@<rot>:<weight>, etc.
        
