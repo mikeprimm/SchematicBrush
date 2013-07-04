@@ -1,6 +1,7 @@
 package com.mikeprimm.bukkit.SchematicBrush;
 
 import java.io.File;
+import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -9,7 +10,9 @@ import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -580,7 +583,7 @@ public class SchematicBrush extends JavaPlugin {
     
     private SchematicDef parseSchematic(LocalPlayer player, String sch) {
         String[] toks = schsplit.split(sch, 0);
-        String name = toks[0];  // Name is first
+        final String name = toks[0];  // Name is first
         String formatName = null;
         Rotation rot = Rotation.ROT0;
         Flip flip = Flip.NONE;
@@ -654,7 +657,11 @@ public class SchematicBrush extends JavaPlugin {
         // See if schematic name is valid
         File dir = we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
         try {
-            File f = we.getSafeOpenFile(player, dir, name, "schematic", "schematic");
+            String fname = this.resolveName(player, dir, name, "schematic");
+            if (fname == null) {
+                return null;
+            }
+            File f = we.getSafeOpenFile(player, dir, fname, "schematic", "schematic");
             if (!f.exists()) {
                 return null;
             }
@@ -739,10 +746,46 @@ public class SchematicBrush extends JavaPlugin {
         cfg.set("schematic-sets",  sect);
         
         this.saveConfig();
+    }    
+    /* Resolve name to loadable name - if contains wildcards, pic random matching file */
+    private String resolveName(LocalPlayer player, File dir, String fname, final String ext) {
+        // If command-line style wildcards
+        if ((!fname.startsWith("^")) && ((fname.indexOf('*') >= 0) || (fname.indexOf('?') >= 0))) {
+            // Compile to regex
+            fname = "^" + fname.replace(".","\\.").replace("*",  ".*").replace("?", ".");
+        }
+        if (fname.startsWith("^")) { // If marked as regex
+            final int extlen = ext.length();
+            try {
+                final Pattern p = Pattern.compile(fname + "\\." + ext);
+                String[] files = dir.list(new FilenameFilter() {
+                    public boolean accept(File f, String fn) {
+                        Matcher m = p.matcher(fn);
+                        return m.matches();
+                    }
+                });
+                if ((files != null) && (files.length > 0)) {    // Multiple choices?
+                    String n = files[rnd.nextInt(files.length)];
+                    n = n.substring(0, n.length() - extlen - 1);
+                    return n;
+                }
+                else {
+                    return null;
+                }
+            } catch (PatternSyntaxException x) {
+                player.printError("Invalid filename pattern - " + fname + " - " + x.getMessage());
+                return null;
+            }
+        }
+        return fname;
     }
     
-    private boolean loadSchematicIntoClipboard(LocalPlayer player, LocalSession sess, String name, String format) {
+    private boolean loadSchematicIntoClipboard(LocalPlayer player, LocalSession sess, String fname, String format) {
         File dir = we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
+        String name = resolveName(player, dir, fname, "schematic");
+        if (name == null) {
+            player.printError("Schematic '" + fname + "' file not found");
+        }
         File f;
         boolean rslt = false;
         try {
