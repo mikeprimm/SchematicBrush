@@ -72,11 +72,12 @@ public class SchematicBrush extends JavaPlugin {
         public Rotation rotation;
         public Flip flip;
         public int weight;      // If -1, equal weight with other -1 schematics
+        public int offset;
         @Override
         public boolean equals(Object o) {
             if (o instanceof SchematicDef) {
                 SchematicDef sd = (SchematicDef) o;
-                return sd.name.equals(this.name) && (sd.rotation == this.rotation) && (sd.flip == this.flip) && (sd.weight == this.weight);
+                return sd.name.equals(this.name) && (sd.rotation == this.rotation) && (sd.flip == this.flip) && (sd.weight == this.weight) && (sd.offset == this.offset);
             }
             return false;
          }
@@ -104,6 +105,9 @@ public class SchematicBrush extends JavaPlugin {
             if (weight >= 0) {
                 n += ":" + weight;
             }
+            if (offset != 0) {
+                n += "^" + offset;
+            }
             return n;
         }
         public Rotation getRotation() {
@@ -117,6 +121,9 @@ public class SchematicBrush extends JavaPlugin {
                 return Flip.values()[rnd.nextInt(3)];
             }
             return flip;
+        }
+        public int getOffset() {
+            return offset;
         }
     }
     
@@ -247,13 +254,13 @@ public class SchematicBrush extends JavaPlugin {
                         }
                     }
                 }
-                ppos = pos.subtract(csize.getX() / 2, -yoff - ybase + 1, csize.getZ() / 2);
+                ppos = pos.subtract(csize.getX() / 2, -def.offset - yoff - ybase + 1, csize.getZ() / 2);
             }
             else if (place == Placement.BOTTOM) {
-                ppos = pos.subtract(csize.getX() / 2, -yoff+1, csize.getZ() / 2);
+                ppos = pos.subtract(csize.getX() / 2, -def.offset -yoff + 1, csize.getZ() / 2);
             }
             else { // Else, default is CENTER (same as clipboard brush
-                ppos = pos.subtract(csize.getX() / 2, (csize.getY() / 2) - yoff, csize.getZ() / 2);
+                ppos = pos.subtract(csize.getX() / 2, (csize.getY() / 2) - yoff - def.offset, csize.getZ() / 2);
             }
             clip.place(editsession, ppos, skipair);
             player.print("Applied '" + schfilename + "', flip=" + flip.name() + ", rot=" + rot.deg + ", place=" + place.name());
@@ -637,7 +644,7 @@ public class SchematicBrush extends JavaPlugin {
         return true;
     }
 
-    private static final Pattern schsplit = Pattern.compile("[@:#]");
+    private static final Pattern schsplit = Pattern.compile("[@:#^]");
     
     private SchematicDef parseSchematic(LocalPlayer player, String sch) {
         String[] toks = schsplit.split(sch, 0);
@@ -646,6 +653,7 @@ public class SchematicBrush extends JavaPlugin {
         Rotation rot = Rotation.ROT0;
         Flip flip = Flip.NONE;
         int wt = DEFAULT_WEIGHT;
+        int offset = 0;
         
         for (int i = 1, off = toks[0].length(); i < toks.length; i++) {
             char sep = sch.charAt(off);
@@ -711,6 +719,13 @@ public class SchematicBrush extends JavaPlugin {
             else if (sep == '#') { // format name
                 formatName = toks[i];
             }
+            else if (sep == '^') { // Offset
+                try {
+                    offset = Integer.parseInt(toks[i]);
+                } catch (NumberFormatException nfx) {
+                    return null;
+                }
+            }
         }
         // See if schematic name is valid
         File dir = we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
@@ -737,6 +752,7 @@ public class SchematicBrush extends JavaPlugin {
             schematic.rotation = rot;
             schematic.flip = flip;
             schematic.weight = wt;
+            schematic.offset = offset;
             
             return schematic;
         } catch (FilenameException fx) {
