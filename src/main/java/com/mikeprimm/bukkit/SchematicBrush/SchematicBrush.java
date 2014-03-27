@@ -1,11 +1,16 @@
 package com.mikeprimm.bukkit.SchematicBrush;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
@@ -236,24 +241,25 @@ public class SchematicBrush extends JavaPlugin {
             }
             // And apply clipboard to edit session
             Vector csize = clip.getSize();
+            System.out.println("clipsize=" + csize.getX() + "," + csize.getY() + "," + csize.getZ());
             Vector ppos;
             if (place == Placement.DROP) {
                 int ybase;
-                Vector v = new Vector(0, 0, 0);
                 // Scan for lowest non-air block in clipboard
                 boolean allair = true;
                 for (ybase = 0; allair && (ybase < csize.getBlockY()); ybase++) {
-                    v.setY(ybase);
                     for (int xx = 0; allair && (xx < csize.getBlockX()); xx++) {
-                        v.setX(xx);
                         for (int zz = 0; allair && (zz < csize.getBlockZ()); zz++) {
-                            v.setZ(zz);
-                            if (!clip.getPoint(v).isAir()) {
+                            Vector v = new Vector(xx, ybase, zz);
+                            BaseBlock bb = clip.getBlock(v);
+                            System.out.println("getBlock(" + v + ")=" + bb);
+                            if ((bb != null) && (bb.isAir() == false)) {
                                 allair = false;
                             }
                         }
                     }
                 }
+                System.out.println("DROP at ybase=" + ybase);
                 ppos = pos.subtract(csize.getX() / 2, -def.offset - yoff - ybase + 1, csize.getZ() / 2);
             }
             else if (place == Placement.BOTTOM) {
@@ -643,13 +649,22 @@ public class SchematicBrush extends JavaPlugin {
 
         return true;
     }
+    
+    private File getDirectoryForFormat(String fmt) {
+        if (fmt.equals("schematic")) {  // Get from worldedit directory
+            return we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
+        }
+        else {  // Else, our own type specific directory
+            return new File(this.getDataFolder(), fmt);
+        }
+    }
 
     private static final Pattern schsplit = Pattern.compile("[@:#^]");
     
     private SchematicDef parseSchematic(LocalPlayer player, String sch) {
         String[] toks = schsplit.split(sch, 0);
         final String name = toks[0];  // Name is first
-        String formatName = null;
+        String formatName = "schematic";
         Rotation rot = Rotation.ROT0;
         Flip flip = Flip.NONE;
         int wt = DEFAULT_WEIGHT;
@@ -728,21 +743,17 @@ public class SchematicBrush extends JavaPlugin {
             }
         }
         // See if schematic name is valid
-        File dir = we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
+        File dir = getDirectoryForFormat(formatName);
         try {
-            String fname = this.resolveName(player, dir, name, "schematic");
+            String fname = this.resolveName(player, dir, name, formatName);
             if (fname == null) {
                 return null;
             }
-            File f = we.getSafeOpenFile(player, dir, fname, "schematic", "schematic");
+            File f = we.getSafeOpenFile(player, dir, fname, formatName);
             if (!f.exists()) {
                 return null;
             }
-            SchematicFormat format = formatName == null ? null : SchematicFormat.getFormat(formatName);
-            if (format == null) {
-                format = SchematicFormat.getFormat(f);
-            }
-            if (format == null) {
+            if ((formatName.equals("schematic") == false) && (formatName.equals("bo2") == false)) {
                 return null;
             }
             // If we're here, everything is good - make schematic object
@@ -855,8 +866,12 @@ public class SchematicBrush extends JavaPlugin {
     }
     
     private String loadSchematicIntoClipboard(LocalPlayer player, LocalSession sess, String fname, String format) {
-        File dir = we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
-        String name = resolveName(player, dir, fname, "schematic");
+        File dir = getDirectoryForFormat(format);
+        if (dir == null) {
+            player.printError("Schematic '" + fname + "' invalid format - " + format);
+            return null;
+        }
+        String name = resolveName(player, dir, fname, format);
         if (name == null) {
             player.printError("Schematic '" + fname + "' file not found");
             return null;
@@ -864,32 +879,42 @@ public class SchematicBrush extends JavaPlugin {
         File f;
         boolean rslt = false;
         try {
-            f = we.getSafeOpenFile(player, dir, name, "schematic", "schematic");
+            f = we.getSafeOpenFile(player, dir, name, format);
             if (!f.exists()) {
                 player.printError("Schematic '" + name + "' file not found");
                 return null;
             }
             // Figure out format to use
-            SchematicFormat fmt = format == null ? null : SchematicFormat.getFormat(format);
-            if (fmt == null) {
-                fmt = SchematicFormat.getFormat(f);
-            }
-            if (fmt == null) {
-                player.printError("Schematic '" + name + "' format not found");
-                return null;
-            }
-            if (!fmt.isOfFormat(f)) {
-                player.printError("Schematic '" + name + "' is not correct format (" + fmt.getName() + ")");
-                return null;
-            }
-            String filePath = f.getCanonicalPath();
-            String dirPath = dir.getCanonicalPath();
+            if (format.equals("schematic")) {
+                SchematicFormat fmt = SchematicFormat.getFormat(f);
+                if (fmt == null) {
+                    player.printError("Schematic '" + name + "' format not found");
+                    return null;
+                }
+                if (!fmt.isOfFormat(f)) {
+                    player.printError("Schematic '" + name + "' is not correct format (" + fmt.getName() + ")");
+                    return null;
+                }
+                String filePath = f.getCanonicalPath();
+                String dirPath = dir.getCanonicalPath();
 
-            if (!filePath.substring(0, dirPath.length()).equals(dirPath)) {
+                if (!filePath.substring(0, dirPath.length()).equals(dirPath)) {
+                    return null;
+                } else {
+                    sess.setClipboard(fmt.load(f));
+                    rslt = true;
+                }
+            }
+            // Else if BO2 file
+            else if (format.equals("bo2")) {
+                CuboidClipboard cc = loadBOD2File(f);
+                if (cc != null) {
+                    sess.setClipboard(cc);
+                    rslt = true;
+                }
+            }
+            else {
                 return null;
-            } else {
-                sess.setClipboard(fmt.load(f));
-                rslt = true;
             }
         } catch (FilenameException e1) {
             player.printError(e1.getMessage());
@@ -900,5 +925,100 @@ public class SchematicBrush extends JavaPlugin {
         }
 
         return (rslt)?name:null;
+    }
+    
+    private CuboidClipboard loadBOD2File(File f) throws IOException {
+        CuboidClipboard cc = null;
+        
+        BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(f), Charset.forName("US-ASCII")));
+        try {
+            Map<String, String> properties = new HashMap<String, String>();
+            Map<Vector, int[]> blocks = new HashMap<Vector, int[]>();
+            boolean readingMetaData = false, readingData = false;
+            String line;
+            int lowestX = Integer.MAX_VALUE, highestX = Integer.MIN_VALUE;
+            int lowestY = Integer.MAX_VALUE, highestY = Integer.MIN_VALUE;
+            int lowestZ = Integer.MAX_VALUE, highestZ = Integer.MIN_VALUE;
+            while ((line = in.readLine()) != null) {
+                if (line.trim().length() == 0) {
+                    continue;
+                }
+                if (readingMetaData) {
+                    if (line.equals("[DATA]")) {
+                        readingMetaData = false;
+                        readingData = true;
+                    } else {
+                        int p = line.indexOf('=');
+                        String name = line.substring(0, p).trim();
+                        String value = line.substring(p + 1).trim();
+                        properties.put(name, value);
+                    }
+                } else if (readingData) {
+                    int p = line.indexOf(':');
+                    String coordinates = line.substring(0, p);
+                    String spec = line.substring(p + 1);
+                    p = coordinates.indexOf(',');
+                    int x = Integer.parseInt(coordinates.substring(0, p));
+                    int p2 = coordinates.indexOf(',', p + 1);
+                    int y = Integer.parseInt(coordinates.substring(p + 1, p2));
+                    int z = Integer.parseInt(coordinates.substring(p2 + 1));
+                    if (x < lowestX) {
+                        lowestX = x;
+                    }
+                    if (x > highestX) {
+                        highestX = x;
+                    }
+                    if (y < lowestY) {
+                        lowestY = y;
+                    }
+                    if (y > highestY) {
+                        highestY = y;
+                    }
+                    if (z < lowestZ) {
+                        lowestZ = z;
+                    }
+                    if (z > highestZ) {
+                        highestZ = z;
+                    }
+                    p = spec.indexOf('.');
+                    int blockId, data = 0;
+                    int[] branch = null;
+                    if (p == -1) {
+                        blockId = Integer.parseInt(spec);
+                    } else {
+                        blockId = Integer.parseInt(spec.substring(0, p));
+                        p2 = spec.indexOf('#', p + 1);
+                        if (p2 == -1) {
+                            data = Integer.parseInt(spec.substring(p + 1));
+                        } else {
+                            data = Integer.parseInt(spec.substring(p + 1, p2));
+                            p = spec.indexOf('@', p2 + 1);
+                            branch = new int[] {Integer.parseInt(spec.substring(p2 + 1, p)), Integer.parseInt(spec.substring(p + 1))};
+                        }
+                    }
+                    Vector coords = new Vector(x, y, z);
+                    blocks.put(coords, new int[] { blockId, data } );
+                } else {
+                    if (line.equals("[META]")) {
+                        readingMetaData = true;
+                    }
+                }
+            }
+            Vector size = new Vector(highestX - lowestX + 1, highestZ - lowestZ + 1, highestY - lowestY + 1);
+            System.out.println("size=" + size.getX() + ","+ size.getY() + "," + size.getZ());
+            //Vector offset = new Vector(-lowestX, -lowestZ, -lowestY);
+            cc = new CuboidClipboard(size);
+            for (Vector v : blocks.keySet()) {
+                int[] ids = blocks.get(v);
+                Vector vv = new Vector(v.getX() - lowestX, v.getZ() - lowestZ, v.getY() - lowestY);
+                System.out.println("Set " + vv + " to " + ids[0] + ":" + ids[1]);
+                cc.setBlock(vv, new BaseBlock(ids[0], ids[1]));
+            }
+        } finally {
+            in.close();
+        }
+
+        
+        return cc;
     }
 }
