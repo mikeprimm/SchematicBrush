@@ -211,7 +211,8 @@ public class SchematicBrush extends JavaPlugin {
             SchematicDef def = set.getRandomSchematic();    // Pick schematic from set
             if (def == null) return;
             LocalSession sess = we.getSession(player);
-            String schfilename = loadSchematicIntoClipboard(player, sess, def.name, def.format);
+            int[] minY = new int[1];
+            String schfilename = loadSchematicIntoClipboard(player, sess, def.name, def.format, minY);
             if (schfilename == null) {
                 return;
             }
@@ -241,26 +242,9 @@ public class SchematicBrush extends JavaPlugin {
             }
             // And apply clipboard to edit session
             Vector csize = clip.getSize();
-            System.out.println("clipsize=" + csize.getX() + "," + csize.getY() + "," + csize.getZ());
             Vector ppos;
             if (place == Placement.DROP) {
-                int ybase;
-                // Scan for lowest non-air block in clipboard
-                boolean allair = true;
-                for (ybase = 0; allair && (ybase < csize.getBlockY()); ybase++) {
-                    for (int xx = 0; allair && (xx < csize.getBlockX()); xx++) {
-                        for (int zz = 0; allair && (zz < csize.getBlockZ()); zz++) {
-                            Vector v = new Vector(xx, ybase, zz);
-                            BaseBlock bb = clip.getBlock(v);
-                            System.out.println("getBlock(" + v + ")=" + bb);
-                            if ((bb != null) && (bb.isAir() == false)) {
-                                allair = false;
-                            }
-                        }
-                    }
-                }
-                System.out.println("DROP at ybase=" + ybase);
-                ppos = pos.subtract(csize.getX() / 2, -def.offset - yoff - ybase + 1, csize.getZ() / 2);
+                ppos = pos.subtract(csize.getX() / 2, -def.offset - yoff - minY[0] + 1, csize.getZ() / 2);
             }
             else if (place == Placement.BOTTOM) {
                 ppos = pos.subtract(csize.getX() / 2, -def.offset -yoff + 1, csize.getZ() / 2);
@@ -865,7 +849,7 @@ public class SchematicBrush extends JavaPlugin {
         return fname;
     }
     
-    private String loadSchematicIntoClipboard(LocalPlayer player, LocalSession sess, String fname, String format) {
+    private String loadSchematicIntoClipboard(LocalPlayer player, LocalSession sess, String fname, String format, int[] bottomY) {
         File dir = getDirectoryForFormat(format);
         if (dir == null) {
             player.printError("Schematic '" + fname + "' invalid format - " + format);
@@ -901,8 +885,23 @@ public class SchematicBrush extends JavaPlugin {
                 if (!filePath.substring(0, dirPath.length()).equals(dirPath)) {
                     return null;
                 } else {
-                    sess.setClipboard(fmt.load(f));
-                    rslt = true;
+                    CuboidClipboard cc = fmt.load(f);
+                    if (cc != null) {
+                        int minY = cc.getHeight() - 1;
+                        for (int y = 0; (minY == -1) && (y < cc.getHeight()); y++) {
+                            for (int x = 0; (minY == -1) && (x < cc.getWidth()); x++) {
+                                for (int z = 0; (minY == -1) && (z < cc.getLength()); z++) {
+                                    if (cc.getBlock(new Vector(x, y, z)) != null) {
+                                        minY = y;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        bottomY[0] = minY;
+                        sess.setClipboard(cc);
+                        rslt = true;
+                    }
                 }
             }
             // Else if BO2 file
@@ -911,6 +910,7 @@ public class SchematicBrush extends JavaPlugin {
                 if (cc != null) {
                     sess.setClipboard(cc);
                     rslt = true;
+                    bottomY[0] = 0; // Always zero for these: we compact things to bottom
                 }
             }
             else {
@@ -962,6 +962,24 @@ public class SchematicBrush extends JavaPlugin {
                     int p2 = coordinates.indexOf(',', p + 1);
                     int y = Integer.parseInt(coordinates.substring(p + 1, p2));
                     int z = Integer.parseInt(coordinates.substring(p2 + 1));
+                    p = spec.indexOf('.');
+                    int blockId, data = 0;
+                    int[] branch = null;
+                    if (p == -1) {
+                        blockId = Integer.parseInt(spec);
+                    } else {
+                        blockId = Integer.parseInt(spec.substring(0, p));
+                        p2 = spec.indexOf('#', p + 1);
+                        if (p2 == -1) {
+                            data = Integer.parseInt(spec.substring(p + 1));
+                        } else {
+                            data = Integer.parseInt(spec.substring(p + 1, p2));
+                            p = spec.indexOf('@', p2 + 1);
+                            branch = new int[] {Integer.parseInt(spec.substring(p2 + 1, p)), Integer.parseInt(spec.substring(p + 1))};
+                        }
+                    }
+                    if (blockId == 0) continue; // Skip air blocks;
+                    
                     if (x < lowestX) {
                         lowestX = x;
                     }
@@ -980,22 +998,6 @@ public class SchematicBrush extends JavaPlugin {
                     if (z > highestZ) {
                         highestZ = z;
                     }
-                    p = spec.indexOf('.');
-                    int blockId, data = 0;
-                    int[] branch = null;
-                    if (p == -1) {
-                        blockId = Integer.parseInt(spec);
-                    } else {
-                        blockId = Integer.parseInt(spec.substring(0, p));
-                        p2 = spec.indexOf('#', p + 1);
-                        if (p2 == -1) {
-                            data = Integer.parseInt(spec.substring(p + 1));
-                        } else {
-                            data = Integer.parseInt(spec.substring(p + 1, p2));
-                            p = spec.indexOf('@', p2 + 1);
-                            branch = new int[] {Integer.parseInt(spec.substring(p2 + 1, p)), Integer.parseInt(spec.substring(p + 1))};
-                        }
-                    }
                     Vector coords = new Vector(x, y, z);
                     blocks.put(coords, new int[] { blockId, data } );
                 } else {
@@ -1005,13 +1007,11 @@ public class SchematicBrush extends JavaPlugin {
                 }
             }
             Vector size = new Vector(highestX - lowestX + 1, highestZ - lowestZ + 1, highestY - lowestY + 1);
-            System.out.println("size=" + size.getX() + ","+ size.getY() + "," + size.getZ());
-            //Vector offset = new Vector(-lowestX, -lowestZ, -lowestY);
-            cc = new CuboidClipboard(size);
+            Vector offset = new Vector(-lowestX, -lowestZ, -lowestY);
+            cc = new CuboidClipboard(size, offset);
             for (Vector v : blocks.keySet()) {
                 int[] ids = blocks.get(v);
                 Vector vv = new Vector(v.getX() - lowestX, v.getZ() - lowestZ, v.getY() - lowestY);
-                System.out.println("Set " + vv + " to " + ids[0] + ":" + ids[1]);
                 cc.setBlock(vv, new BaseBlock(ids[0], ids[1]));
             }
         } finally {
