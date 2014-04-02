@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -677,6 +678,7 @@ public class SchematicBrush extends JavaPlugin {
         }
         final Pattern p = Pattern.compile(".*\\." + fmt);
         List<String> files = getMatchingFiles(dir, p);
+        Collections.sort(files);
         int cnt = (files.size() + LINES_PER_PAGE - 1) / LINES_PER_PAGE;  // Number of pages
         if (page < 1) page = 1;
         if (page > cnt) page = cnt;
