@@ -28,6 +28,14 @@ commands:
        /<command> remove <id> <schematic> ... - remove <schematc> patterns from schematic set <id>
        /<command> setdesc <id> <description> - set description of schematic set <id>
        where <schematic> can be <name>, <name>@<rot>, <name>@<rot><flip>, <name>:<weight>, <name>@<rot>:<weight>, etc.
+       
+  /schlist:
+    description: List schematics available
+    usage: |
+       /<command> - list first set of *.schematic files
+       /<command> <#> - list Nth set of *.schematic files
+       /<command> <ext> - list first set of *.<ext> files
+       /<command> <ext> <#> - list Nth set of *.<ext> files
 
 permissions:
   schematicbrush.*:
@@ -42,6 +50,7 @@ permissions:
       schematicbrush.set.setdesc: true
       schematicbrush.set.use: true
       schematicbrush.brush.use: true
+      schematicbrush.list: true
   schematicbrush.set.list:
     description: Allows //schset list command
     default: op
@@ -69,5 +78,6 @@ permissions:
   schematicbrush.brush.use:
     description: Allows use of //schbr command
     default: op
-    
-    
+  schematicbrush.list:
+    description: Allows use of //schlist command
+    default: op

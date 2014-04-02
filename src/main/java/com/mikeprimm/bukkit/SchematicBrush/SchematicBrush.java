@@ -281,6 +281,10 @@ public class SchematicBrush extends JavaPlugin {
         }
         wep = (WorldEditPlugin) wedit;
         we = wep.getWorldEdit();
+        // Initialize bo2 directory, if needed
+        File bo2dir = this.getDirectoryForFormat("bo2");
+        bo2dir.mkdirs();
+        
         // Load existing schematics
         loadSchematicSets();
         // Kick off stats
@@ -299,6 +303,10 @@ public class SchematicBrush extends JavaPlugin {
         }
         else if (cmd.getName().equals("/schset")) {
             handleSCHSETCommand(sender, cmd, args);
+            return true;
+        }
+        else if (cmd.getName().equals("/schlist")) {
+            handleSCHLISTCommand(sender, cmd, args);
             return true;
         }
         return false;
@@ -643,6 +651,42 @@ public class SchematicBrush extends JavaPlugin {
         }
     }
 
+    
+    private static final int LINES_PER_PAGE = 10;
+    private boolean handleSCHLISTCommand(CommandSender sender, Command cmd, String[] args) {
+        // Wrap sender
+        LocalPlayer player = wep.wrapCommandSender(sender);
+        // Test for command access
+        if (!player.hasPermission("schematicbrush.list")) {
+            sender.sendMessage("You do not have access to this command");
+            return true;
+        }
+        int page = 1;
+        String fmt = "schematic";
+        for (int i = 0; i < args.length; i++) {
+            try {
+                page = Integer.parseInt(args[i]);
+            } catch (NumberFormatException nfx) {
+                fmt = args[i];
+            }
+        }
+        File dir = getDirectoryForFormat(fmt);  // Get directory for extension
+        if (dir == null) {
+            sender.sendMessage("Invalid format: " + fmt);
+            return true;
+        }
+        final Pattern p = Pattern.compile(".*\\." + fmt);
+        List<String> files = getMatchingFiles(dir, p);
+        int cnt = (files.size() + LINES_PER_PAGE - 1) / LINES_PER_PAGE;  // Number of pages
+        if (page < 1) page = 1;
+        if (page > cnt) page = cnt;
+        sender.sendMessage("Page " + page + " of " + cnt + " (" + files.size() + " files)");
+        for (int i = (page - 1) * LINES_PER_PAGE; (i < (page * LINES_PER_PAGE)) && (i < files.size()); i++) {
+            sender.sendMessage(files.get(i));
+        }
+        return true;
+    }
+        
     private static final Pattern schsplit = Pattern.compile("[@:#^]");
     
     private SchematicDef parseSchematic(LocalPlayer player, String sch) {
@@ -816,6 +860,29 @@ public class SchematicBrush extends JavaPlugin {
         
         this.saveConfig();
     }    
+
+    private List<String> getMatchingFiles(File dir, Pattern p) {
+        ArrayList<String> matches = new ArrayList<String>();
+        getMatchingFiles(matches, dir, p, null);
+        return matches;
+    }
+    
+    private void getMatchingFiles(List<String> rslt, File dir, Pattern p, String path) {
+        File[] fl = dir.listFiles();
+        for (File f : fl) {
+            String n = (path == null) ? f.getName() : (path + "/" + f.getName());
+            if (f.isDirectory()) {
+                getMatchingFiles(rslt, f, p, n);
+            }
+            else {
+                Matcher m = p.matcher(n);
+                if (m.matches()) {
+                    rslt.add(n);
+                }
+            }
+        }
+    }
+
     /* Resolve name to loadable name - if contains wildcards, pic random matching file */
     private String resolveName(LocalPlayer player, File dir, String fname, final String ext) {
         // If command-line style wildcards
@@ -827,14 +894,9 @@ public class SchematicBrush extends JavaPlugin {
             final int extlen = ext.length();
             try {
                 final Pattern p = Pattern.compile(fname + "\\." + ext);
-                String[] files = dir.list(new FilenameFilter() {
-                    public boolean accept(File f, String fn) {
-                        Matcher m = p.matcher(fn);
-                        return m.matches();
-                    }
-                });
-                if ((files != null) && (files.length > 0)) {    // Multiple choices?
-                    String n = files[rnd.nextInt(files.length)];
+                List<String> files = getMatchingFiles(dir, p);
+                if (files.isEmpty() == false) {    // Multiple choices?
+                    String n = files.get(rnd.nextInt(files.size()));
                     n = n.substring(0, n.length() - extlen - 1);
                     return n;
                 }
