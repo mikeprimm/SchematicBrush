@@ -19,6 +19,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
+import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
@@ -52,7 +53,57 @@ public class SchematicBrush extends JavaPlugin {
     public WorldEdit we;
     public WorldEditPlugin wep;
     public static final int DEFAULT_WEIGHT = -1;
-
+    private static String formattingCode = "[@:#^]";
+    private static String rotflipSeperator = "@";
+    private static String weightSeperator = ":";
+    private static String yoffSeperator = "^";
+    private static String formatSeperator = "#";
+    
+    public static void setrotFlipSeperator(String sep){
+    	rotflipSeperator = sep;
+    	System.out.println("set to: " + rotflipSeperator);
+    }
+    
+    public static void setweightSeperator(String sep){
+    	weightSeperator = sep;
+    	System.out.println("set to: " + weightSeperator);
+    }
+    
+    public static void setyoffSeperator(String sep){
+    	yoffSeperator = sep;
+    	System.out.println("set to: " + yoffSeperator);
+    }
+    
+    public static void setformatSeperator(String sep){
+    	formatSeperator = sep;
+    	System.out.println("set to: " + formatSeperator);
+    }
+    
+    public static void setFormattingCode(String code){
+    	formattingCode = code;
+    	System.out.println("set to: " + formattingCode);
+    }
+    
+    public static String getrotFlipSeperator(){
+    	return rotflipSeperator;
+    }
+    
+    public static String getweightSeperator(){
+    	return weightSeperator;
+    }
+    
+    public static String getyoffSeperator(){
+    	return yoffSeperator;
+    }
+    
+    public static String getformatSeperator(){
+    	return formatSeperator;
+    }
+    
+    public static String getformattingCode(){
+    	return formattingCode;
+    }
+    
     public static enum Flip {
         NONE, NS, EW, RANDOM;
     }
@@ -86,13 +137,12 @@ public class SchematicBrush extends JavaPlugin {
             }
             return false;
          }
-        @Override
-        public String toString() {
+        public String CustomtoString() {
             String n = this.name;
             if (format != null)
-                n += "#" + format;
+                n += getformatSeperator() + format;
             if ((rotation != Rotation.ROT0) || (flip != Flip.NONE)) {
-                n += "@";
+                n += getrotFlipSeperator();
                 if (rotation == Rotation.RANDOM)
                     n += '*';
                 else
@@ -108,10 +158,10 @@ public class SchematicBrush extends JavaPlugin {
                 n += 'E';
             }
             if (weight >= 0) {
-                n += ":" + weight;
+                n += getweightSeperator() + weight;
             }
             if (offset != 0) {
-                n += "^" + offset;
+                n += getyoffSeperator() + offset;
             }
             return n;
         }
@@ -267,7 +317,7 @@ public class SchematicBrush extends JavaPlugin {
 
     public void onEnable() {
         log = this.getLogger();
-        
+        loadConfig();
         log.info("SchematicBrush v" + this.getDescription().getVersion() + " loaded");
 
         final FileConfiguration cfg = getConfig();
@@ -297,15 +347,15 @@ public class SchematicBrush extends JavaPlugin {
     
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String commandLabel, String[] args) {
-        if (cmd.getName().equals("/schbr")) {
+        if (cmd.getName().equalsIgnoreCase("/schbr")) {
             handleSCHBRCommand(sender, cmd, args);
             return true;
         }
-        else if (cmd.getName().equals("/schset")) {
+        else if (cmd.getName().equalsIgnoreCase("/schset")) {
             handleSCHSETCommand(sender, cmd, args);
             return true;
         }
-        else if (cmd.getName().equals("/schlist")) {
+        else if (cmd.getName().equalsIgnoreCase("/schlist")) {
             handleSCHLISTCommand(sender, cmd, args);
             return true;
         }
@@ -313,27 +363,28 @@ public class SchematicBrush extends JavaPlugin {
     }    
     
     private boolean handleSCHBRCommand(CommandSender sender, Command cmd, String[] args) {
-        LocalPlayer player = wep.wrapCommandSender(sender);
+    	loadConfig();
+    	LocalPlayer player = wep.wrapCommandSender(sender);
         // Test for command access
         if (!player.hasPermission("schematicbrush.brush.use")) {
-            sender.sendMessage("You do not have access to this command");
+            sender.sendMessage(ChatColor.RED + "You do not have access to this command");
             return true;
         }
         if (args.length < 1) {
-            player.print("Schematic brush requires &set-id or one or more schematic patterns");
+            player.print(ChatColor.RED + "Schematic brush requires &set-id or one or more schematic patterns");
             return false;
         }
         String setid = null;
         SchematicSet ss = null;
         if (args[0].startsWith("&")) {  // If set ID
             if (player.hasPermission("schematicbrush.set.use") == false) {
-                player.printError("Not permitted to use schematic sets");
+                player.printError(ChatColor.RED + "Not permitted to use schematic sets");
                 return true;
             }
             setid = args[0].substring(1);
             ss = sets.get(setid);
             if (ss == null) {
-                player.print("Schematic set '" + setid + "' not found");
+                player.print(ChatColor.RED + "Schematic set '" + setid + "' not found");
                 return true;
             }
         }
@@ -345,7 +396,7 @@ public class SchematicBrush extends JavaPlugin {
                 else {
                     SchematicDef sd = parseSchematic(player, args[i]);
                     if (sd == null) {
-                        player.print("Invalid schematic definition: " + args[i]);
+                        player.print(ChatColor.RED + "Invalid schematic definition: " + args[i]);
                         return true;
                     }
                     defs.add(sd);
@@ -359,21 +410,21 @@ public class SchematicBrush extends JavaPlugin {
         Placement place = Placement.CENTER;
         for (int i = 0; i < args.length; i++) {
             if (args[i].startsWith("-")) { // Option
-                if (args[i].equals("-incair")) {
+                if (args[i].equalsIgnoreCase("-incair")) {
                     skipair = false;
                 }
-                else if (args[i].equals("-replaceall")) {
+                else if (args[i].equalsIgnoreCase("-replaceall")) {
                     replaceall = true;
                 }
-                else if (args[i].startsWith("-yoff:")) {
+                else if (args[i].toLowerCase().startsWith("-yoff:")) {
                     String offval = args[i].substring(args[i].indexOf(':') + 1);
                     try {
                         yoff = Integer.parseInt(offval);
                     } catch (NumberFormatException nfx) {
-                        player.printError("Bad y-offset value: " + offval);
+                        player.printError(ChatColor.RED + "Bad y-offset value: " + offval);
                     }
                 }
-                else if (args[i].startsWith("-place:")) {
+                else if (args[i].toLowerCase().startsWith("-place:")) {
                     String pval = args[i].substring(args[i].indexOf(':') + 1).toUpperCase();
                     place = Placement.valueOf(pval);
                     if (place == null) {
@@ -399,6 +450,8 @@ public class SchematicBrush extends JavaPlugin {
             tool.setBrush(sbi, "schematicbrush.brush.use");
             if (!replaceall) {
                 tool.setMask(new BlockMask(new BaseBlock(BlockID.AIR, -1)));
+            }else{
+            	tool.setMask(null);
             }
             player.print("Schematic brush set");
         } catch (InvalidToolBindException e) {
@@ -410,35 +463,35 @@ public class SchematicBrush extends JavaPlugin {
 
     private boolean handleSCHSETCommand(CommandSender sender, Command cmd, String[] args) {
         if (args.length < 1) {  // Not enough arguments
-            sender.sendMessage("  <command> argument required: list, create, get, delete, append, remove, setdesc");
+            sender.sendMessage(ChatColor.GRAY + "  <command> argument required: list, create, get, delete, append, remove, setdesc");
             return false;
         }
         // Wrap sender
         LocalPlayer player = wep.wrapCommandSender(sender);
         // Test for command access
         if (!player.hasPermission("schematicbrush.set." + args[0])) {
-            sender.sendMessage("You do not have access to this command");
+            sender.sendMessage(ChatColor.RED + "You do not have access to this command");
             return true;
         }
-        if (args[0].equals("list")) {
+        if (args[0].equalsIgnoreCase("list")) {
             return handleSCHSETList(player, args);
         }
-        else if (args[0].equals("create")) {
+        else if (args[0].equalsIgnoreCase("create")) {
             return handleSCHSETCreate(player, args);
         }
-        else if (args[0].equals("delete")) {
+        else if (args[0].equalsIgnoreCase("delete")) {
             return handleSCHSETDelete(player, args);
         }
-        else if (args[0].equals("append")) {
+        else if (args[0].equalsIgnoreCase("append")) {
             return handleSCHSETAppend(player, args);
         }
-        else if (args[0].equals("get")) {
+        else if (args[0].equalsIgnoreCase("get")) {
             return handleSCHSETGet(player, args);
         }
-        else if (args[0].equals("remove")) {
+        else if (args[0].equalsIgnoreCase("remove")) {
             return handleSCHSETRemove(player, args);
         }
-        else if (args[0].equals("setdesc")) {
+        else if (args[0].equalsIgnoreCase("setdesc")) {
             return handleSCHSETSetDesc(player, args);
         }
         
@@ -633,7 +686,7 @@ public class SchematicBrush extends JavaPlugin {
             if (sd.weight > 0) {
                 det += ", weight=" + sd.weight;
             }
-            player.print("Schematic: " + sd.toString() + " (" + det + ")");
+            player.print("Schematic: " + sd.CustomtoString() + " (" + det + ")");
         }
         if ((ss.getTotalWeights() > 100) && (ss.getEqualWeightCount() > 0)) {
             player.print("Warning: total weights exceed 100 - schematics without weights will never be selected");
@@ -643,7 +696,7 @@ public class SchematicBrush extends JavaPlugin {
     }
     
     private File getDirectoryForFormat(String fmt) {
-        if (fmt.equals("schematic")) {  // Get from worldedit directory
+        if (fmt.equalsIgnoreCase("schematic")) {  // Get from worldedit directory
             return we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
         }
         else {  // Else, our own type specific directory
@@ -658,7 +711,7 @@ public class SchematicBrush extends JavaPlugin {
         LocalPlayer player = wep.wrapCommandSender(sender);
         // Test for command access
         if (!player.hasPermission("schematicbrush.list")) {
-            sender.sendMessage("You do not have access to this command");
+            sender.sendMessage(ChatColor.RED + "You do not have access to this command");
             return true;
         }
         int page = 1;
@@ -672,28 +725,41 @@ public class SchematicBrush extends JavaPlugin {
         }
         File dir = getDirectoryForFormat(fmt);  // Get directory for extension
         if (dir == null) {
-            sender.sendMessage("Invalid format: " + fmt);
+            sender.sendMessage(ChatColor.RED + "Invalid format: " + fmt);
             return true;
         }
         final Pattern p = Pattern.compile(".*\\." + fmt);
         List<String> files = getMatchingFiles(dir, p);
-        Collections.sort(files);
-        int cnt = (files.size() + LINES_PER_PAGE - 1) / LINES_PER_PAGE;  // Number of pages
-        if (page < 1) page = 1;
-        if (page > cnt) page = cnt;
-        sender.sendMessage("Page " + page + " of " + cnt + " (" + files.size() + " files)");
-        for (int i = (page - 1) * LINES_PER_PAGE; (i < (page * LINES_PER_PAGE)) && (i < files.size()); i++) {
-            sender.sendMessage(files.get(i));
+        if(files.size() == 0){
+        	sender.sendMessage(ChatColor.RED + "No Files Found!");
+        }else{
+		    Collections.sort(files);
+	        int cnt = (files.size() + LINES_PER_PAGE - 1) / LINES_PER_PAGE;  // Number of pages
+	        if (page < 1) page = 1;
+	        if (page > cnt) page = cnt;
+	        sender.sendMessage(ChatColor.GOLD + "" + ChatColor.UNDERLINE + "Page " + page + " of " + cnt + ChatColor.WHITE + " (" + files.size() + fileS(files));
+	        for (int i = (page - 1) * LINES_PER_PAGE; (i < (page * LINES_PER_PAGE)) && (i < files.size()); i++) {
+	        	sender.sendMessage(ChatColor.GRAY + files.get(i));
+	        }
         }
         return true;
     }
         
-    private static final Pattern schsplit = Pattern.compile("[@:#^]");
+    private String fileS(List<String> files) {
+    	if(files.size() ==1){
+    		return " file)";
+    	}else{
+    		return " files)";
+    	}
+	}
+
+
+	private Pattern schsplit = Pattern.compile(getformattingCode());
     
     private SchematicDef parseSchematic(LocalPlayer player, String sch) {
         String[] toks = schsplit.split(sch, 0);
-        final String name = toks[0];  // Name is first
         String formatName = "schematic";
+        final String name = toks[0];  // Name is first
         Rotation rot = Rotation.ROT0;
         Flip flip = Flip.NONE;
         int wt = DEFAULT_WEIGHT;
@@ -701,8 +767,10 @@ public class SchematicBrush extends JavaPlugin {
         
         for (int i = 1, off = toks[0].length(); i < toks.length; i++) {
             char sep = sch.charAt(off);
+            System.out.println(toks[i]);
             off = off + 1 + toks[i].length();
-            if (sep == '@') { // Rotation/flip?
+            if ("" + sep == getrotFlipSeperator()) { // Rotation/flip?
+            	System.out.println("recognized a rot/flip Seperator!");
                 String v = toks[i];
                 if (v.startsWith("*")) {  // random rotate?
                     rot = Rotation.RANDOM;
@@ -731,19 +799,15 @@ public class SchematicBrush extends JavaPlugin {
                     flip = Flip.NONE;
                 }
                 else {
-                    char c = v.charAt(0);
+                    char c = v.toLowerCase().charAt(0);
                     switch (c) {
                         case '*':
                             flip = Flip.RANDOM;
                             break;
-                        case 'N':
-                        case 'S':
                         case 'n':
                         case 's':
                             flip = Flip.NS;
                             break;
-                        case 'E':
-                        case 'W':
                         case 'e':
                         case 'w':
                             flip = Flip.EW;
@@ -753,23 +817,29 @@ public class SchematicBrush extends JavaPlugin {
                     }
                 }
             }
-            else if (sep == ':') { // weight
+            else if ("" + sep == getweightSeperator()) { // weight
+            	System.out.println("recognized a weight Seperator!");
                 try {
                     wt = Integer.parseInt(toks[i]);
                 } catch (NumberFormatException nfx) {
                     return null;
                 }
             }
-            else if (sep == '#') { // format name
+            else if ("" + sep == getformatSeperator()) { // format name
+            	System.out.println("recognized a format Seperator!");
                 formatName = toks[i];
             }
-            else if (sep == '^') { // Offset
+            else if ("" + sep == getyoffSeperator()) { // Offset
+            	System.out.println("recognized a yoff Seperator!");
                 try {
                     offset = Integer.parseInt(toks[i]);
                 } catch (NumberFormatException nfx) {
                     return null;
                 }
+            }else{
+            	System.out.println("" + sep);
             }
+            
         }
         // See if schematic name is valid
         File dir = getDirectoryForFormat(formatName);
@@ -796,13 +866,13 @@ public class SchematicBrush extends JavaPlugin {
             
             return schematic;
         } catch (FilenameException fx) {
+        	fx.printStackTrace();
             return null;
         }
     }
     
     private void loadSchematicSets() {
         sets.clear(); // Reset sets
-        
         LocalPlayer console = wep.wrapCommandSender(getServer().getConsoleSender());
         FileConfiguration cfg = this.getConfig();
         ConfigurationSection sect = cfg.getConfigurationSection("schematic-sets");
@@ -848,7 +918,7 @@ public class SchematicBrush extends JavaPlugin {
             sect.set(ss.name + ".desc", ss.desc);
             ArrayList<String> lst = new ArrayList<String>();
             for (SchematicDef sd : ss.schematics) {
-                lst.add(sd.toString());
+                lst.add(sd.CustomtoString());
             }
             sect.set(ss.name + ".sets", lst);
         }
@@ -899,7 +969,7 @@ public class SchematicBrush extends JavaPlugin {
                 if (files.isEmpty() == false) {    // Multiple choices?
                     String n = files.get(rnd.nextInt(files.size()));
                     n = n.substring(0, n.length() - extlen - 1);
-                    return n;
+                    return n + "." + ext;
                 }
                 else {
                     return null;
@@ -932,7 +1002,7 @@ public class SchematicBrush extends JavaPlugin {
                 return null;
             }
             // Figure out format to use
-            if (format.equals("schematic")) {
+            if (format.equalsIgnoreCase("schematic")) {
                 SchematicFormat fmt = SchematicFormat.getFormat(f);
                 if (fmt == null) {
                     player.printError("Schematic '" + name + "' format not found");
@@ -968,7 +1038,7 @@ public class SchematicBrush extends JavaPlugin {
                 }
             }
             // Else if BO2 file
-            else if (format.equals("bo2")) {
+            else if (format.equalsIgnoreCase("bo2")) {
                 CuboidClipboard cc = loadBOD2File(f);
                 if (cc != null) {
                     sess.setClipboard(cc);
@@ -988,6 +1058,15 @@ public class SchematicBrush extends JavaPlugin {
         }
 
         return (rslt)?name:null;
+    }
+    
+    private void loadConfig(){
+        FileConfiguration cfg = this.getConfig();
+        setFormattingCode(cfg.getString("Formatting"));
+        setrotFlipSeperator("" + getformattingCode().charAt(1));
+        setweightSeperator("" + getformattingCode().charAt(2));
+        setformatSeperator("" + getformattingCode().charAt(3));
+        setyoffSeperator("" + getformattingCode().charAt(4));
     }
     
     private CuboidClipboard loadBOD2File(File f) throws IOException {
@@ -1032,12 +1111,12 @@ public class SchematicBrush extends JavaPlugin {
                         blockId = Integer.parseInt(spec);
                     } else {
                         blockId = Integer.parseInt(spec.substring(0, p));
-                        p2 = spec.indexOf('#', p + 1);
+                        p2 = spec.indexOf(getformatSeperator(), p + 1);
                         if (p2 == -1) {
                             data = Integer.parseInt(spec.substring(p + 1));
                         } else {
                             data = Integer.parseInt(spec.substring(p + 1, p2));
-                            p = spec.indexOf('@', p2 + 1);
+                            p = spec.indexOf(getrotFlipSeperator(), p2 + 1);
                             //branch = new int[] {Integer.parseInt(spec.substring(p2 + 1, p)), Integer.parseInt(spec.substring(p + 1))};
                         }
                     }
