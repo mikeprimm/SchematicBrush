@@ -1,0 +1,104 @@
+name: SchematicBrush
+main: com.mikeprimm.bukkit.SchematicBrush.SchematicBrush
+version: "0.7 Beta"
+authors: [mikeprimm, mariomarco]
+depend: [ WorldEdit ]
+
+commands:
+  /schbr:
+    description: Set brush to schematic brush.
+    aliases: [/sb, /schembr, /schematicBrush]
+    usage: |
+       /<command> <schematic> ... - set brush tool to given set of <schematic> patterns
+       /<command> &<id> - set brush tool to use schematic set <id>
+       /<command> &<id> -incair - set brush tool to use schematic set <id>, and to apply air blocks from schematics
+       /<command> &<id> -replaceall - set brush tool to use schematic set <id>, and to replace existing non-air blocks
+       /<command> &<id> -place:<placement> - set brush tool to use schematic set <id>, and place using placement method <placement> (CENTER, BOTTOM, DROP)
+       /<command> &<id> -yoff:<off> - set brush tool to use schematic set <id>, and to add <off> to y coordinate of schematic (default:1)
+       where <schematic> can be <name>, <name>@<rot>, <name>@<rot><flip>, <name>:<weight>, <name>@<rot>:<weight>, etc.
+       
+  /schset:
+    description: Define a schematic set (same format as //schbr command)
+    aliases: [/sbset, /schemset, /schematicSet]
+    usage: |
+       /<command> list - list all schematic sets
+       /<command> list <matchstring> - list all schematic sets containing the string <matchstring> in their ID
+       /<command> create <id> <schematic> <schematic> ... - create schematic set with given <id> and given <schematic> patterns
+       /<command> delete <id> - delete schematic set with given <id>
+       /<command> append <id> <schematic> ... - append <schematic> patterns to schematic set <id>
+       /<command> get <id> - get details of schematic set <id>
+       /<command> remove <id> <schematic> ... - remove <schematc> patterns from schematic set <id>
+       /<command> setdesc <id> <description> - set description of schematic set <id>
+       where <schematic> can be <name>, <name>@<rot>, <name>@<rot><flip>, <name>:<weight>, <name>@<rot>:<weight>, etc.
+       
+  /schlist:
+    description: List schematics available
+    aliases: [/sblist, /schemlist, /schematicList]
+    usage: |
+       /<command> - list first set of *.schematic files
+       /<command> <#> - list Nth set of *.schematic files
+       /<command> <ext> - list first set of *.<ext> files
+       /<command> <ext> <#> - list Nth set of *.<ext> files
+       
+  /schreload:
+    description: Reloads the configuration
+    aliases: [/sbreload,/schemreload, /schematicReload]
+    usage: |
+       /<command> - reloads config
+
+  /sch:
+    description: Shows help
+    aliases: [/sbhub]
+    usage: |
+       /<command> - hub for all commands
+       /<command> <subcommand> - like reload list...
+       /<command> help - Provides help
+       
+permissions:
+  schematicbrush.*:
+    description: Gives access to all schematic brush functions
+    children:
+      schematicbrush.set.list: true
+      schematicbrush.set.create: true
+      schematicbrush.set.delete: true
+      schematicbrush.set.append: true
+      schematicbrush.set.remove: true
+      schematicbrush.set.get: true
+      schematicbrush.set.setdesc: true
+      schematicbrush.set.use: true
+      schematicbrush.brush.use: true
+      schematicbrush.list: true
+      schematicbrush.reload: true
+  schematicbrush.set.list:
+    description: Allows //schset list command
+    default: op
+  schematicbrush.set.create:
+    description: Allows //schset create command
+    default: op
+  schematicbrush.set.delete:
+    description: Allows //schset delete command
+    default: op
+  schematicbrush.set.append:
+    description: Allows //schset append command
+    default: op
+  schematicbrush.set.remove:
+    description: Allows //schset remove command
+    default: op
+  schematicbrush.set.get:
+    description: Allows //schset get command
+    default: op
+  schematicbrush.set.setdesc:
+    description: Allows //schset setdesc command
+    default: op
+  schematicbrush.set.use:
+    description: Allows use of schematic sets in //schbr command (&<set-id>)
+    default: op
+  schematicbrush.brush.use:
+    description: Allows use of //schbr command
+    default: op
+  schematicbrush.list:
+    description: Allows use of //schlist command
+    default: op
+  schematicbrush.reload:
+    description: Allows use of //schreload command
+    default: op
