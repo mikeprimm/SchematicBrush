@@ -52,57 +52,8 @@ public class SchematicBrush extends JavaPlugin {
     public Logger log;
     public WorldEdit we;
     public WorldEditPlugin wep;
+    public String FormattingString;
     public static final int DEFAULT_WEIGHT = -1;
-    private static String formattingCode = "[@:#^]";
-    private static String rotflipSeperator = "@";
-    private static String weightSeperator = ":";
-    private static String yoffSeperator = "^";
-    private static String formatSeperator = "#";
-    
-    public static void setrotFlipSeperator(String sep){
-    	rotflipSeperator = sep;
-    	System.out.println("set to: " + rotflipSeperator);
-    }
-    
-    public static void setweightSeperator(String sep){
-    	weightSeperator = sep;
-    	System.out.println("set to: " + weightSeperator);
-    }
-    
-    public static void setyoffSeperator(String sep){
-    	yoffSeperator = sep;
-    	System.out.println("set to: " + yoffSeperator);
-    }
-    
-    public static void setformatSeperator(String sep){
-    	formatSeperator = sep;
-    	System.out.println("set to: " + formatSeperator);
-    }
-    
-    public static void setFormattingCode(String code){
-    	formattingCode = code;
-    	System.out.println("set to: " + formattingCode);
-    }
-    
-    public static String getrotFlipSeperator(){
-    	return rotflipSeperator;
-    }
-    
-    public static String getweightSeperator(){
-    	return weightSeperator;
-    }
-    
-    public static String getyoffSeperator(){
-    	return yoffSeperator;
-    }
-    
-    public static String getformatSeperator(){
-    	return formatSeperator;
-    }
-    
-    public static String getformattingCode(){
-    	return formattingCode;
-    }
     
     public static enum Flip {
         NONE, NS, EW, RANDOM;
@@ -121,8 +72,8 @@ public class SchematicBrush extends JavaPlugin {
     
     public CommandsManager<CommandSender> cmdmgr;
     private static Random rnd = new Random();
-
-    public static class SchematicDef {
+    
+    public class SchematicDef {
         public String name;
         public String format;
         public Rotation rotation;
@@ -140,9 +91,9 @@ public class SchematicBrush extends JavaPlugin {
         public String CustomtoString() {
             String n = this.name;
             if (format != null)
-                n += getformatSeperator() + format;
+                n += FormattingString.charAt(3) + format;
             if ((rotation != Rotation.ROT0) || (flip != Flip.NONE)) {
-                n += getrotFlipSeperator();
+                n += FormattingString.charAt(1);
                 if (rotation == Rotation.RANDOM)
                     n += '*';
                 else
@@ -158,10 +109,10 @@ public class SchematicBrush extends JavaPlugin {
                 n += 'E';
             }
             if (weight >= 0) {
-                n += getweightSeperator() + weight;
+                n += FormattingString.charAt(2) + weight;
             }
             if (offset != 0) {
-                n += getyoffSeperator() + offset;
+                n += FormattingString.charAt(4) + offset;
             }
             return n;
         }
@@ -317,13 +268,10 @@ public class SchematicBrush extends JavaPlugin {
 
     public void onEnable() {
         log = this.getLogger();
-        loadConfig();
         log.info("SchematicBrush v" + this.getDescription().getVersion() + " loaded");
-
-        final FileConfiguration cfg = getConfig();
-        cfg.options().copyDefaults(true);   /* Load defaults, if needed */
-        this.saveConfig();  /* Save updates, if needed */
-    
+        
+        loadConfiguration();
+        
         Plugin wedit = this.getServer().getPluginManager().getPlugin("WorldEdit");
         if (wedit == null) {
             log.info("WorldEdit not found!");
@@ -345,7 +293,16 @@ public class SchematicBrush extends JavaPlugin {
         }
     }
     
-    @Override
+    public void loadConfiguration(){
+    	File configFile = new File(this.getDataFolder(), "config.yml");
+        if (!configFile.exists()){
+            System.out.print("PlayerSQL: Config.yml does not exist, creating one now");
+            this.saveDefaultConfig();
+        }
+        FormattingString = getConfig().getString("Formatting");
+    }
+
+	@Override
     public boolean onCommand(CommandSender sender, Command cmd, String commandLabel, String[] args) {
         if (cmd.getName().equalsIgnoreCase("/schbr")) {
             handleSCHBRCommand(sender, cmd, args);
@@ -363,7 +320,6 @@ public class SchematicBrush extends JavaPlugin {
     }    
     
     private boolean handleSCHBRCommand(CommandSender sender, Command cmd, String[] args) {
-    	loadConfig();
     	LocalPlayer player = wep.wrapCommandSender(sender);
         // Test for command access
         if (!player.hasPermission("schematicbrush.brush.use")) {
@@ -752,26 +708,24 @@ public class SchematicBrush extends JavaPlugin {
     		return " files)";
     	}
 	}
-
-
-	private Pattern schsplit = Pattern.compile(getformattingCode());
     
     private SchematicDef parseSchematic(LocalPlayer player, String sch) {
-        String[] toks = schsplit.split(sch, 0);
+    	loadConfiguration();
+    	String[] toks = Pattern.compile(FormattingString).split(sch, 0);
         String formatName = "schematic";
         final String name = toks[0];  // Name is first
         Rotation rot = Rotation.ROT0;
         Flip flip = Flip.NONE;
         int wt = DEFAULT_WEIGHT;
         int offset = 0;
-        
+        System.out.println(FormattingString);
         for (int i = 1, off = toks[0].length(); i < toks.length; i++) {
             char sep = sch.charAt(off);
-            System.out.println(toks[i]);
+            System.out.println("toks:" + toks[i]);
+            System.out.println("sep:" + sep);
             off = off + 1 + toks[i].length();
-            if ("" + sep == getrotFlipSeperator()) { // Rotation/flip?
-            	System.out.println("recognized a rot/flip Seperator!");
-                String v = toks[i];
+            String v = toks[i];
+            if (sep == FormattingString.charAt(1)) { // Rotation/flip?
                 if (v.startsWith("*")) {  // random rotate?
                     rot = Rotation.RANDOM;
                     v = v.substring(1);
@@ -817,20 +771,17 @@ public class SchematicBrush extends JavaPlugin {
                     }
                 }
             }
-            else if ("" + sep == getweightSeperator()) { // weight
-            	System.out.println("recognized a weight Seperator!");
+            else if (sep == FormattingString.charAt(2)) { // weight
                 try {
                     wt = Integer.parseInt(toks[i]);
                 } catch (NumberFormatException nfx) {
                     return null;
                 }
             }
-            else if ("" + sep == getformatSeperator()) { // format name
-            	System.out.println("recognized a format Seperator!");
+            else if (sep == FormattingString.charAt(3)) { // format name
                 formatName = toks[i];
             }
-            else if ("" + sep == getyoffSeperator()) { // Offset
-            	System.out.println("recognized a yoff Seperator!");
+            else if (sep == FormattingString.charAt(4)) { // Offset
                 try {
                     offset = Integer.parseInt(toks[i]);
                 } catch (NumberFormatException nfx) {
@@ -1060,14 +1011,9 @@ public class SchematicBrush extends JavaPlugin {
         return (rslt)?name:null;
     }
     
-    private void loadConfig(){
-        FileConfiguration cfg = this.getConfig();
-        setFormattingCode(cfg.getString("Formatting"));
-        setrotFlipSeperator("" + getformattingCode().charAt(1));
-        setweightSeperator("" + getformattingCode().charAt(2));
-        setformatSeperator("" + getformattingCode().charAt(3));
-        setyoffSeperator("" + getformattingCode().charAt(4));
-    }
+    /*private FileConfiguration getClassConfig(JavaPlugin plugin){
+    	return plugin.getConfig();
+    }*/
     
     private CuboidClipboard loadBOD2File(File f) throws IOException {
         CuboidClipboard cc = null;
@@ -1111,12 +1057,12 @@ public class SchematicBrush extends JavaPlugin {
                         blockId = Integer.parseInt(spec);
                     } else {
                         blockId = Integer.parseInt(spec.substring(0, p));
-                        p2 = spec.indexOf(getformatSeperator(), p + 1);
+                        p2 = spec.indexOf(FormattingString.charAt(3), p + 1);
                         if (p2 == -1) {
                             data = Integer.parseInt(spec.substring(p + 1));
                         } else {
                             data = Integer.parseInt(spec.substring(p + 1, p2));
-                            p = spec.indexOf(getrotFlipSeperator(), p2 + 1);
+                            p = spec.indexOf(FormattingString.charAt(1), p2 + 1);
                             //branch = new int[] {Integer.parseInt(spec.substring(p2 + 1, p)), Integer.parseInt(spec.substring(p + 1))};
                         }
                     }
