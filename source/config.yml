@@ -1,3 +1,4 @@
 # SchematicBrush configuration
-Formatting: '[@:#^]'
-schematic-sets:
+Config:
+  Formatting: '[@:#^]'
+  Debug: false

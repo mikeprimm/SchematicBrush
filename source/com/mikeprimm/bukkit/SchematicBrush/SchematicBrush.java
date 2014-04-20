@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -49,277 +51,269 @@ import com.sk89q.worldedit.bukkit.WorldEditPlugin;
 import com.sk89q.worldedit.data.DataException;
 
 public class SchematicBrush extends JavaPlugin {
-    public Logger log;
+	
+    public CommandsManager<CommandSender> cmdmgr;
+	public String FormattingString;
+	public Logger log;
     public WorldEdit we;
     public WorldEditPlugin wep;
-    public String FormattingString;
     public static final int DEFAULT_WEIGHT = -1;
     
-    public static enum Flip {
-        NONE, NS, EW, RANDOM;
-    }
-    public static enum Rotation {
-        ROT0(0), ROT90(90), ROT180(180), ROT270(270), RANDOM(-1);
-        
-        final int deg;
-        Rotation(int deg) {
-            this.deg = deg;
-        }
-    }
-    public static enum Placement {
-        CENTER, BOTTOM, DROP
-    }
-    
-    public CommandsManager<CommandSender> cmdmgr;
-    private static Random rnd = new Random();
-    
-    public class SchematicDef {
-        public String name;
-        public String format;
-        public Rotation rotation;
-        public Flip flip;
-        public int weight;      // If -1, equal weight with other -1 schematics
-        public int offset;
-        @Override
-        public boolean equals(Object o) {
-            if (o instanceof SchematicDef) {
-                SchematicDef sd = (SchematicDef) o;
-                return sd.name.equals(this.name) && (sd.rotation == this.rotation) && (sd.flip == this.flip) && (sd.weight == this.weight) && (sd.offset == this.offset);
-            }
-            return false;
-         }
-        public String CustomtoString() {
-            String n = this.name;
-            if (format != null)
-                n += FormattingString.charAt(3) + format;
-            if ((rotation != Rotation.ROT0) || (flip != Flip.NONE)) {
-                n += FormattingString.charAt(1);
-                if (rotation == Rotation.RANDOM)
-                    n += '*';
-                else
-                    n += (90 * rotation.ordinal());
-            }
-            if (flip == Flip.RANDOM) {
-                n += '*';
-            }
-            else if (flip == Flip.NS) {
-                n += 'N';
-            }
-            else if (flip == Flip.EW) {
-                n += 'E';
-            }
-            if (weight >= 0) {
-                n += FormattingString.charAt(2) + weight;
-            }
-            if (offset != 0) {
-                n += FormattingString.charAt(4) + offset;
-            }
-            return n;
-        }
-        public Rotation getRotation() {
-            if (rotation == Rotation.RANDOM) {
-                return Rotation.values()[rnd.nextInt(4)];
-            }
-            return rotation;
-        }
-        public Flip getFlip() {
-            if (flip == Flip.RANDOM) {
-                return Flip.values()[rnd.nextInt(3)];
-            }
-            return flip;
-        }
-        public int getOffset() {
-            return offset;
-        }
-    }
-    
-    public static class SchematicSet {
-        public String name;
-        public String desc;
-        public List<SchematicDef> schematics;
-        public SchematicSet(String n, String d, List<SchematicDef> sch) {
-            this.name = n;
-            this.desc = (d == null)?"":d;
-            this.schematics = (sch == null)?(new ArrayList<SchematicDef>()):sch;
-        }
-        public int getTotalWeights() {
-            int wt = 0;
-            for (SchematicDef sd : schematics) {
-                if (sd.weight > 0)
-                    wt += sd.weight;
-            }
-            return wt;
-        }
-        public int getEqualWeightCount() {
-            int cnt = 0;
-            for (SchematicDef sd : schematics) {
-                if (sd.weight <= 0) {
-                    cnt++;
-                }
-            }
-            return cnt;
-        }
-        public SchematicDef getRandomSchematic() {
-            int total = getTotalWeights();
-            int cnt = getEqualWeightCount();
-            int rndval = 0;
-            // If any fixed weights
-            if (total > 0) {
-                // If total fixed more than 100, or equal weight count is zero
-                if ((total > 100) || (cnt == 0)) {
-                    rndval = rnd.nextInt(total);    // Random from 0 to total-1
-                }
-                else {
-                    rndval = rnd.nextInt(100);      // From 0 to 100 
-                }
-                if (rndval < total) {   // Fixed weight match
-                    for (SchematicDef def : schematics) {
-                        if (def.weight > 0) {
-                            rndval -= def.weight;
-                            if (rndval < 0) {   // Match?
-                                return def;
-                            }
-                        }
-                    }
-                }
-            }
-            if (cnt > 0) {
-                rndval = rnd.nextInt(cnt);  // Pick from equal weight values
-                for (SchematicDef def : schematics) {
-                    if (def.weight < 0) {
-                        rndval--;
-                        if (rndval < 0) {
-                            return def;
-                        }
-                    }
-                }
-            }
-            return null;
-        }
-    }
+    private boolean Debug = false;
     private HashMap<String, SchematicSet> sets = new HashMap<String, SchematicSet>();
-    
-    public class SchematicBrushInstance implements Brush {
-        SchematicSet set;
-        LocalPlayer player;
-        boolean skipair;
-        int yoff;
-        Placement place;
-        
-        public void build(EditSession editsession, Vector pos,
-                com.sk89q.worldedit.patterns.Pattern mat, double size)
-                throws MaxChangedBlocksException {
-            SchematicDef def = set.getRandomSchematic();    // Pick schematic from set
-            if (def == null) return;
-            LocalSession sess = we.getSession(player);
-            int[] minY = new int[1];
-            String schfilename = loadSchematicIntoClipboard(player, sess, def.name, def.format, minY);
-            if (schfilename == null) {
-                return;
-            }
-            CuboidClipboard clip = null;
-            try {
-                clip = sess.getClipboard();
-            } catch (EmptyClipboardException e) {
-                player.printError("Schematic is empty");
-                return;
-            }
-            // Get rotation for clipboard
-            Rotation rot = def.getRotation();
-            if (rot != Rotation.ROT0) {
-                clip.rotate2D(rot.ordinal() * 90);
-            }
-            // Get flip option
-            Flip flip = def.getFlip();
-            switch (flip) {
-                case NS:
-                    clip.flip(FlipDirection.NORTH_SOUTH);
-                    break;
-                case EW:
-                    clip.flip(FlipDirection.WEST_EAST);
-                    break;
-                default:
-                    break;
-            }
-            // And apply clipboard to edit session
-            Vector csize = clip.getSize();
-            Vector ppos;
-            if (place == Placement.DROP) {
-                ppos = pos.subtract(csize.getX() / 2, -def.offset - yoff - minY[0] + 1, csize.getZ() / 2);
-            }
-            else if (place == Placement.BOTTOM) {
-                ppos = pos.subtract(csize.getX() / 2, -def.offset -yoff + 1, csize.getZ() / 2);
-            }
-            else { // Else, default is CENTER (same as clipboard brush
-                ppos = pos.subtract(csize.getX() / 2, (csize.getY() / 2) - yoff - def.offset, csize.getZ() / 2);
-            }
-            clip.place(editsession, ppos, skipair);
-            player.print("Applied '" + schfilename + "', flip=" + flip.name() + ", rot=" + rot.deg + ", place=" + place.name());
-        }
-    }
-   
-    public SchematicBrush() {
-    }
-    
-    /* On disable, stop doing our function */
-    public void onDisable() {
-        
-    }
+    private static Random rnd = new Random();
+    private static final int LINES_PER_PAGE = 10;
 
+    
+    
+    
     public void onEnable() {
+    	//Setting up Logger
         log = this.getLogger();
-        log.info("SchematicBrush v" + this.getDescription().getVersion() + " loaded");
         
+        //loading Config
         loadConfiguration();
+        printDebug(Level.INFO, "loaded Config");
         
+        //init wedit compatibility
         Plugin wedit = this.getServer().getPluginManager().getPlugin("WorldEdit");
         if (wedit == null) {
-            log.info("WorldEdit not found!");
+            log.warning("WorldEdit not found!");
             return;
         }
         wep = (WorldEditPlugin) wedit;
         we = wep.getWorldEdit();
+        
         // Initialize bo2 directory, if needed
         File bo2dir = this.getDirectoryForFormat("bo2");
         bo2dir.mkdirs();
         
         // Load existing schematics
         loadSchematicSets();
+        
         // Kick off stats
         try {
             MetricsLite ml = new MetricsLite(this);
             ml.start();
         } catch (IOException iox) {
+        	printDebug(Level.WARNING, "Metrics did not load correctly!");
         }
+        
+        log.info("SchematicBrush: v" + this.getDescription().getVersion() + " loaded");
     }
     
-    public void loadConfiguration(){
-    	File configFile = new File(this.getDataFolder(), "config.yml");
-        if (!configFile.exists()){
-            System.out.print("PlayerSQL: Config.yml does not exist, creating one now");
-            this.saveDefaultConfig();
+    
+    
+    
+    /*///////////////////////////////////////////////////////////////
+    //   String Manipulation                                       //
+    //-------------------------------------------------------------*/
+    
+    private SchematicDef parseSchematic(LocalPlayer player, String sch) {
+    	//Compiling FormattingString to regex
+    	String[] toks = Pattern.compile(FormattingString).split(sch, 0);
+        String formatName = "schematic";
+        final String name = toks[0];  // Name is first
+        Rotation rot = Rotation.ROT0;
+        Flip flip = Flip.NONE;
+        int wt = DEFAULT_WEIGHT;
+        int offset = 0;
+        
+        printDebug(Level.FINE, "FormattingString : " + FormattingString + " , toks: " + toks.length);
+        
+        for (int i = 1, off = toks[0].length(); i < toks.length; i++) {
+            char sep = sch.charAt(off);
+            off = off + 1 + toks[i].length();
+            String v = toks[i];
+            if (sep == FormattingString.charAt(1)) { // Rotation/flip?
+                if (v.startsWith("*")) {  // random rotate?
+                    rot = Rotation.RANDOM;
+                    v = v.substring(1);
+                }
+                else {  // Else, must be number
+                    rot = Rotation.ROT0;
+                    int coff;
+                    int val = 0;
+                    for (coff = 0; coff < v.length(); coff++) {
+                        if (Character.isDigit(v.charAt(coff))) {
+                            val = (val * 10) + (v.charAt(coff) - '0');
+                        }
+                        else {
+                            break;
+                        }
+                    }
+                    // If not multiple of 90, error
+                    if ((val % 90) != 0) {
+                        return null;
+                    }
+                    rot = Rotation.values()[((val / 90) % 4)];    // Clamp to 0-270
+                    v = v.substring(coff);
+                }
+                if (v.length() == 0) {	//Flipping
+                    flip = Flip.NONE;
+                }
+                else {
+                    char c = v.toLowerCase().charAt(0);  //ignoring Case
+                    switch (c) {
+                        case '*':
+                            flip = Flip.RANDOM;			//Random Flipping
+                            break;
+                        case 'n':
+                        case 's':
+                            flip = Flip.NS;				//Flip North-South
+                            break;
+                        case 'e':
+                        case 'w':
+                            flip = Flip.EW;				//Flip East-West
+                            break;
+                        default:
+                            return null;
+                    }
+                }
+            }
+            else if (sep == FormattingString.charAt(2)) { // weight
+                try {
+                    wt = Integer.parseInt(toks[i]);
+                } catch (NumberFormatException nfx) {
+                    return null;
+                }
+            }
+            else if (sep == FormattingString.charAt(3)) { // format name
+                formatName = toks[i];
+            }
+            else if (sep == FormattingString.charAt(4)) { // Offset
+                try {
+                    offset = Integer.parseInt(toks[i]);
+                } catch (NumberFormatException nfx) {
+                    return null;
+                }
+            }
         }
-        FormattingString = getConfig().getString("Formatting");
+        // See if schematic name is valid
+        File dir = getDirectoryForFormat(formatName);
+        try {
+            String fname = this.resolveName(player, dir, name, formatName);
+            if (fname == null) {
+                return null;
+            }
+            File f = we.getSafeOpenFile(player, dir, fname, formatName);
+            if (!f.exists()) {
+                return null;
+            }
+            if ((formatName.equals("schematic") == false) && (formatName.equals("bo2") == false)) {
+                return null;
+            }
+            // If we're here, everything is good - make schematic object
+            SchematicDef schematic = new SchematicDef();
+            schematic.name = name;
+            schematic.format = formatName;
+            schematic.rotation = rot;
+            schematic.flip = flip;
+            schematic.weight = wt;
+            schematic.offset = offset;
+            
+            return schematic;
+        } catch (FilenameException fx) {
+        	fx.printStackTrace();
+            return null;
+        }
     }
 
-	@Override
+    private String resolveName(LocalPlayer player, File dir, String fname, final String ext) {
+        // If command-line style wildcards
+        if ((!fname.startsWith("^")) && ((fname.indexOf('*') >= 0) || (fname.indexOf('?') >= 0))) {
+            // Compile to regex
+            fname = "^" + fname.replace(".","\\.").replace("*",  ".*").replace("?", ".");
+            printDebug(Level.FINE, "Converted to regex -> " + fname);
+        }
+        if (fname.startsWith("^")) { // If marked as regex
+            final int extlen = ext.length();
+            try {
+                final Pattern p = Pattern.compile(fname + "\\." + ext);
+                List<String> files = getMatchingFiles(dir, p);
+                if (files.isEmpty() == false) {    // Multiple choices?
+                    String n = files.get(rnd.nextInt(files.size()));
+                    n = n.substring(0, n.length() - extlen - 1);
+                    return n + "." + ext;
+                }
+                else {
+                    return null;
+                }
+            } catch (PatternSyntaxException x) {
+                player.printError("Invalid filename pattern - " + fname + " - " + x.getMessage());
+                return null;
+            }
+        }
+        return fname;
+    }
+    
+    private void printDebug(Level lvl, String msg){
+    	if(Debug){
+    		log.log(lvl, msg);
+    	}
+    }
+    
+    
+    
+    
+    /*///////////////////////////////////////////////////////////////
+    //   Handle Commands                                           //
+    //-------------------------------------------------------------*/
+    
+    @Override
     public boolean onCommand(CommandSender sender, Command cmd, String commandLabel, String[] args) {
-        if (cmd.getName().equalsIgnoreCase("/schbr")) {
-            handleSCHBRCommand(sender, cmd, args);
+    	printDebug(Level.INFO, sender.getName() +  " ran command: " + cmd);
+    	if (cmd.getName().equalsIgnoreCase("/schbr")) {
+            handleSCHBRCommand(sender, args);
             return true;
         }
         else if (cmd.getName().equalsIgnoreCase("/schset")) {
-            handleSCHSETCommand(sender, cmd, args);
+            handleSCHSETCommand(sender, args);
             return true;
         }
         else if (cmd.getName().equalsIgnoreCase("/schlist")) {
-            handleSCHLISTCommand(sender, cmd, args);
+            handleSCHLISTCommand(sender, args);
+            return true;
+        }
+        else if (cmd.getName().equalsIgnoreCase("/schreload")) {
+        	handleSCHRELOADCommand(sender);
+            return true;
+        }
+        else if (cmd.getName().equalsIgnoreCase("/sch")) {
+            handleSCHCommand(sender, args);
             return true;
         }
         return false;
     }    
     
-    private boolean handleSCHBRCommand(CommandSender sender, Command cmd, String[] args) {
+    private void handleSCHCommand(CommandSender sender, String[] args) {
+    	if(args.length == 0){
+    		sender.sendMessage("If you want some help click here:" + ChatColor.BOLD + ChatColor.GOLD + " http://bit.ly/QoWfnj");
+    		return;
+    	}
+    	switch (args[0].toLowerCase()){
+			case "br":
+				handleSCHBRCommand(sender,Arrays.copyOfRange(args, 1, args.length));
+				break;
+			case "set":
+				handleSCHSETCommand(sender,Arrays.copyOfRange(args, 1, args.length));
+				break;
+			case "list":
+				handleSCHLISTCommand(sender,Arrays.copyOfRange(args, 1, args.length));
+				break;
+			case "reload":
+				handleSCHRELOADCommand(sender);
+				break;
+			default:
+				sender.sendMessage("If you want some help click here:" + ChatColor.BOLD + ChatColor.GOLD + " http://bit.ly/QoWfnj");
+				break;
+    	}
+	}
+
+
+
+
+	private boolean handleSCHBRCommand(CommandSender sender, String[] args) {
     	LocalPlayer player = wep.wrapCommandSender(sender);
         // Test for command access
         if (!player.hasPermission("schematicbrush.brush.use")) {
@@ -417,7 +411,7 @@ public class SchematicBrush extends JavaPlugin {
         return true;
     }
 
-    private boolean handleSCHSETCommand(CommandSender sender, Command cmd, String[] args) {
+    private boolean handleSCHSETCommand(CommandSender sender, String[] args) {
         if (args.length < 1) {  // Not enough arguments
             sender.sendMessage(ChatColor.GRAY + "  <command> argument required: list, create, get, delete, append, remove, setdesc");
             return false;
@@ -450,11 +444,66 @@ public class SchematicBrush extends JavaPlugin {
         else if (args[0].equalsIgnoreCase("setdesc")) {
             return handleSCHSETSetDesc(player, args);
         }
-        
         return false;
     }
     
-    private boolean handleSCHSETList(LocalPlayer player, String[] args) {
+    private boolean handleSCHRELOADCommand(CommandSender player) {
+		if(player.hasPermission("schematicbrush.reload")){
+			this.reloadConfig();
+			loadConfiguration();
+			player.sendMessage(ChatColor.GREEN + "Reload Successful");
+			return true;
+		}
+		player.sendMessage(ChatColor.RED + "You do not have access to this command");
+		return false;
+	}
+    
+    private boolean handleSCHLISTCommand(CommandSender sender, String[] args) {
+        // Wrap sender
+        LocalPlayer player = wep.wrapCommandSender(sender);
+        // Test for command access
+        if (!player.hasPermission("schematicbrush.list")) {
+            sender.sendMessage(ChatColor.RED + "You do not have access to this command");
+            return true;
+        }
+        int page = 1;
+        String fmt = "schematic";
+        for (int i = 0; i < args.length; i++) {
+            try {
+                page = Integer.parseInt(args[i]);
+            } catch (NumberFormatException nfx) {
+                fmt = args[i];
+            }
+        }
+        File dir = getDirectoryForFormat(fmt);  // Get directory for extension
+        if (dir == null) {
+            sender.sendMessage(ChatColor.RED + "Invalid format: " + fmt);
+            return true;
+        }
+        final Pattern p = Pattern.compile(".*\\." + fmt);
+        List<String> files = getMatchingFiles(dir, p);
+        if(files.size() == 0){
+        	sender.sendMessage(ChatColor.RED + "No Files Found!");
+        }else{
+		    Collections.sort(files);
+	        int cnt = (files.size() + LINES_PER_PAGE - 1) / LINES_PER_PAGE;  // Number of pages
+	        if (page < 1) page = 1;
+	        if (page > cnt) page = cnt;
+	        String fileNum;
+	    	if(files.size() ==1){
+	    		fileNum = " file)";
+	    	}else{
+	    		fileNum=  " files)";
+	    	}
+	        sender.sendMessage(ChatColor.GOLD + "" + ChatColor.UNDERLINE + "Page " + page + " of " + cnt + ChatColor.WHITE + " (" + files.size() + fileNum);
+	        for (int i = (page - 1) * LINES_PER_PAGE; (i < (page * LINES_PER_PAGE)) && (i < files.size()); i++) {
+	        	sender.sendMessage(ChatColor.GRAY + files.get(i));
+	        }
+        }
+        return true;
+    }
+
+	private boolean handleSCHSETList(LocalPlayer player, String[] args) {
         String contains = null;
         if (args.length > 2) {
             contains = args[1];
@@ -651,175 +700,29 @@ public class SchematicBrush extends JavaPlugin {
         return true;
     }
     
-    private File getDirectoryForFormat(String fmt) {
-        if (fmt.equalsIgnoreCase("schematic")) {  // Get from worldedit directory
-            return we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
-        }
-        else {  // Else, our own type specific directory
-            return new File(this.getDataFolder(), fmt);
-        }
-    }
-
     
-    private static final int LINES_PER_PAGE = 10;
-    private boolean handleSCHLISTCommand(CommandSender sender, Command cmd, String[] args) {
-        // Wrap sender
-        LocalPlayer player = wep.wrapCommandSender(sender);
-        // Test for command access
-        if (!player.hasPermission("schematicbrush.list")) {
-            sender.sendMessage(ChatColor.RED + "You do not have access to this command");
-            return true;
-        }
-        int page = 1;
-        String fmt = "schematic";
-        for (int i = 0; i < args.length; i++) {
-            try {
-                page = Integer.parseInt(args[i]);
-            } catch (NumberFormatException nfx) {
-                fmt = args[i];
+    
+    
+    /*///////////////////////////////////////////////////////////////
+    //   Handle Directories, Files or Configurations                //
+    //-------------------------------------------------------------*/
+    
+    public void loadConfiguration(){
+    	File configFile = new File(this.getDataFolder(), "config.yml");
+        if (!configFile.exists() || !getConfig().isSet("Config.Formatting") || !getConfig().isSet("Config.Debug")){
+            log.warning("Config.yml is not valid!, creating one now");
+            this.saveDefaultConfig();
+            getConfig().options().copyDefaults(true);
+            if(getConfig().isSet("Formatting")){
+            	getConfig().set("Config.Formatting", getConfig().getString("Formatting"));
+            	getConfig().set("Formatting", null);
             }
+            this.saveConfig();
         }
-        File dir = getDirectoryForFormat(fmt);  // Get directory for extension
-        if (dir == null) {
-            sender.sendMessage(ChatColor.RED + "Invalid format: " + fmt);
-            return true;
-        }
-        final Pattern p = Pattern.compile(".*\\." + fmt);
-        List<String> files = getMatchingFiles(dir, p);
-        if(files.size() == 0){
-        	sender.sendMessage(ChatColor.RED + "No Files Found!");
-        }else{
-		    Collections.sort(files);
-	        int cnt = (files.size() + LINES_PER_PAGE - 1) / LINES_PER_PAGE;  // Number of pages
-	        if (page < 1) page = 1;
-	        if (page > cnt) page = cnt;
-	        sender.sendMessage(ChatColor.GOLD + "" + ChatColor.UNDERLINE + "Page " + page + " of " + cnt + ChatColor.WHITE + " (" + files.size() + fileS(files));
-	        for (int i = (page - 1) * LINES_PER_PAGE; (i < (page * LINES_PER_PAGE)) && (i < files.size()); i++) {
-	        	sender.sendMessage(ChatColor.GRAY + files.get(i));
-	        }
-        }
-        return true;
-    }
         
-    private String fileS(List<String> files) {
-    	if(files.size() ==1){
-    		return " file)";
-    	}else{
-    		return " files)";
-    	}
-	}
-    
-    private SchematicDef parseSchematic(LocalPlayer player, String sch) {
-    	loadConfiguration();
-    	String[] toks = Pattern.compile(FormattingString).split(sch, 0);
-        String formatName = "schematic";
-        final String name = toks[0];  // Name is first
-        Rotation rot = Rotation.ROT0;
-        Flip flip = Flip.NONE;
-        int wt = DEFAULT_WEIGHT;
-        int offset = 0;
-        System.out.println(FormattingString);
-        for (int i = 1, off = toks[0].length(); i < toks.length; i++) {
-            char sep = sch.charAt(off);
-            System.out.println("toks:" + toks[i]);
-            System.out.println("sep:" + sep);
-            off = off + 1 + toks[i].length();
-            String v = toks[i];
-            if (sep == FormattingString.charAt(1)) { // Rotation/flip?
-                if (v.startsWith("*")) {  // random rotate?
-                    rot = Rotation.RANDOM;
-                    v = v.substring(1);
-                }
-                else {  // Else, must be number
-                    rot = Rotation.ROT0;
-                    int coff;
-                    int val = 0;
-                    for (coff = 0; coff < v.length(); coff++) {
-                        if (Character.isDigit(v.charAt(coff))) {
-                            val = (val * 10) + (v.charAt(coff) - '0');
-                        }
-                        else {
-                            break;
-                        }
-                    }
-                    // If not multiple of 90, error
-                    if ((val % 90) != 0) {
-                        return null;
-                    }
-                    rot = Rotation.values()[((val / 90) % 4)];    // Clamp to 0-270
-                    v = v.substring(coff);
-                }
-                if (v.length() == 0) {
-                    flip = Flip.NONE;
-                }
-                else {
-                    char c = v.toLowerCase().charAt(0);
-                    switch (c) {
-                        case '*':
-                            flip = Flip.RANDOM;
-                            break;
-                        case 'n':
-                        case 's':
-                            flip = Flip.NS;
-                            break;
-                        case 'e':
-                        case 'w':
-                            flip = Flip.EW;
-                            break;
-                        default:
-                            return null;
-                    }
-                }
-            }
-            else if (sep == FormattingString.charAt(2)) { // weight
-                try {
-                    wt = Integer.parseInt(toks[i]);
-                } catch (NumberFormatException nfx) {
-                    return null;
-                }
-            }
-            else if (sep == FormattingString.charAt(3)) { // format name
-                formatName = toks[i];
-            }
-            else if (sep == FormattingString.charAt(4)) { // Offset
-                try {
-                    offset = Integer.parseInt(toks[i]);
-                } catch (NumberFormatException nfx) {
-                    return null;
-                }
-            }else{
-            	System.out.println("" + sep);
-            }
-            
-        }
-        // See if schematic name is valid
-        File dir = getDirectoryForFormat(formatName);
-        try {
-            String fname = this.resolveName(player, dir, name, formatName);
-            if (fname == null) {
-                return null;
-            }
-            File f = we.getSafeOpenFile(player, dir, fname, formatName);
-            if (!f.exists()) {
-                return null;
-            }
-            if ((formatName.equals("schematic") == false) && (formatName.equals("bo2") == false)) {
-                return null;
-            }
-            // If we're here, everything is good - make schematic object
-            SchematicDef schematic = new SchematicDef();
-            schematic.name = name;
-            schematic.format = formatName;
-            schematic.rotation = rot;
-            schematic.flip = flip;
-            schematic.weight = wt;
-            schematic.offset = offset;
-            
-            return schematic;
-        } catch (FilenameException fx) {
-        	fx.printStackTrace();
-            return null;
-        }
+        FormattingString = getConfig().getString("Config.Formatting");
+        Debug = getConfig().getBoolean("Config.Debug");
+        printDebug(Level.INFO,"RELOADED! Debug: true, Formatting: " + FormattingString);
     }
     
     private void loadSchematicSets() {
@@ -859,6 +762,7 @@ public class SchematicBrush extends JavaPlugin {
             sets.put(key, ss);
         }
     }
+    
     private void saveSchematicSets() {        
         FileConfiguration cfg = this.getConfig();
         ConfigurationSection sect = cfg.getConfigurationSection("schematic-sets");
@@ -881,57 +785,7 @@ public class SchematicBrush extends JavaPlugin {
         cfg.set("schematic-sets",  sect);
         
         this.saveConfig();
-    }    
-
-    private List<String> getMatchingFiles(File dir, Pattern p) {
-        ArrayList<String> matches = new ArrayList<String>();
-        getMatchingFiles(matches, dir, p, null);
-        return matches;
-    }
-    
-    private void getMatchingFiles(List<String> rslt, File dir, Pattern p, String path) {
-        File[] fl = dir.listFiles();
-        for (File f : fl) {
-            String n = (path == null) ? f.getName() : (path + "/" + f.getName());
-            if (f.isDirectory()) {
-                getMatchingFiles(rslt, f, p, n);
-            }
-            else {
-                Matcher m = p.matcher(n);
-                if (m.matches()) {
-                    rslt.add(n);
-                }
-            }
-        }
-    }
-
-    /* Resolve name to loadable name - if contains wildcards, pic random matching file */
-    private String resolveName(LocalPlayer player, File dir, String fname, final String ext) {
-        // If command-line style wildcards
-        if ((!fname.startsWith("^")) && ((fname.indexOf('*') >= 0) || (fname.indexOf('?') >= 0))) {
-            // Compile to regex
-            fname = "^" + fname.replace(".","\\.").replace("*",  ".*").replace("?", ".");
-        }
-        if (fname.startsWith("^")) { // If marked as regex
-            final int extlen = ext.length();
-            try {
-                final Pattern p = Pattern.compile(fname + "\\." + ext);
-                List<String> files = getMatchingFiles(dir, p);
-                if (files.isEmpty() == false) {    // Multiple choices?
-                    String n = files.get(rnd.nextInt(files.size()));
-                    n = n.substring(0, n.length() - extlen - 1);
-                    return n + "." + ext;
-                }
-                else {
-                    return null;
-                }
-            } catch (PatternSyntaxException x) {
-                player.printError("Invalid filename pattern - " + fname + " - " + x.getMessage());
-                return null;
-            }
-        }
-        return fname;
-    }
+    }  
     
     private String loadSchematicIntoClipboard(LocalPlayer player, LocalSession sess, String fname, String format, int[] bottomY) {
         File dir = getDirectoryForFormat(format);
@@ -1010,10 +864,6 @@ public class SchematicBrush extends JavaPlugin {
 
         return (rslt)?name:null;
     }
-    
-    /*private FileConfiguration getClassConfig(JavaPlugin plugin){
-    	return plugin.getConfig();
-    }*/
     
     private CuboidClipboard loadBOD2File(File f) throws IOException {
         CuboidClipboard cc = null;
@@ -1108,5 +958,260 @@ public class SchematicBrush extends JavaPlugin {
 
         
         return cc;
+    }
+    
+    private File getDirectoryForFormat(String fmt) {
+        if (fmt.equalsIgnoreCase("schematic")) {  // Get from worldedit directory
+            return we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
+        }
+        else {  // Else, our own type specific directory
+            return new File(this.getDataFolder(), fmt);
+        }
+    }
+    
+    private List<String> getMatchingFiles(File dir, Pattern p) {
+        ArrayList<String> matches = new ArrayList<String>();
+        getMatchingFiles(matches, dir, p, null);
+        return matches;
+    }
+    
+    private void getMatchingFiles(List<String> rslt, File dir, Pattern p, String path) {
+        File[] fl = dir.listFiles();
+        for (File f : fl) {
+            String n = (path == null) ? f.getName() : (path + "/" + f.getName());
+            if (f.isDirectory()) {
+                getMatchingFiles(rslt, f, p, n);
+            }
+            else {
+                Matcher m = p.matcher(n);
+                if (m.matches()) {
+                    rslt.add(n);
+                }
+            }
+        }
+    }
+    
+    
+    
+    
+    /*///////////////////////////////////////////////////////////////
+    //   Enumerators for FLIP, ROTATION and Placement              //
+    //-------------------------------------------------------------//
+    //FLIP: NONE, NS, EW, RANDOM                                   //
+    //ROTATION: step 90 and RANDOM(-1)                             //
+    //PLACEMENT: CENTER, BOTTOM, DROP                              //
+    ///////////////////////////////////////////////////////////////*/
+    
+    public static enum Flip {
+        NONE, NS, EW, RANDOM;
+    }
+    
+    public static enum Rotation {
+        ROT0(0), ROT90(90), ROT180(180), ROT270(270), RANDOM(-1);
+        
+        final int deg;
+        Rotation(int deg) {
+            this.deg = deg;
+        }
+    }
+    
+    public static enum Placement {
+        CENTER, BOTTOM, DROP
+    }
+    
+    
+    
+    
+    /*///////////////////////////////////////////////////////////////
+    //   Inherited classes                                         //
+    //-------------------------------------------------------------//
+    //For:                                                         //
+    // Schematic definition                                        //
+    // Sets of Schematics                                          //
+	// & Creation of Schematics                                    //
+    ///////////////////////////////////////////////////////////////*/
+    
+    public class SchematicDef {
+        public String name;
+        public String format;
+        public Rotation rotation;
+        public Flip flip;
+        public int weight;      // If -1, equal weight with other -1 schematics
+        public int offset;
+        @Override
+        public boolean equals(Object o) {
+            if (o instanceof SchematicDef) {
+                SchematicDef sd = (SchematicDef) o;
+                return sd.name.equals(this.name) && (sd.rotation == this.rotation) && (sd.flip == this.flip) && (sd.weight == this.weight) && (sd.offset == this.offset);
+            }
+            return false;
+         }
+        public String CustomtoString() {
+            String n = this.name;
+            if (format != null)
+                n += FormattingString.charAt(3) + format;
+            if ((rotation != Rotation.ROT0) || (flip != Flip.NONE)) {
+                n += FormattingString.charAt(1);
+                if (rotation == Rotation.RANDOM)
+                    n += '*';
+                else
+                    n += (90 * rotation.ordinal());
+            }
+            if (flip == Flip.RANDOM) {
+                n += '*';
+            }
+            else if (flip == Flip.NS) {
+                n += 'N';
+            }
+            else if (flip == Flip.EW) {
+                n += 'E';
+            }
+            if (weight >= 0) {
+                n += FormattingString.charAt(2) + weight;
+            }
+            if (offset != 0) {
+                n += FormattingString.charAt(4) + offset;
+            }
+            return n;
+        }
+        public Rotation getRotation() {
+            if (rotation == Rotation.RANDOM) {
+                return Rotation.values()[rnd.nextInt(4)];
+            }
+            return rotation;
+        }
+        public Flip getFlip() {
+            if (flip == Flip.RANDOM) {
+                return Flip.values()[rnd.nextInt(3)];
+            }
+            return flip;
+        }
+        public int getOffset() {
+            return offset;
+        }
+    }
+    
+    public static class SchematicSet {
+        public String name;
+        public String desc;
+        public List<SchematicDef> schematics;
+        public SchematicSet(String n, String d, List<SchematicDef> sch) {
+            this.name = n;
+            this.desc = (d == null)?"":d;
+            this.schematics = (sch == null)?(new ArrayList<SchematicDef>()):sch;
+        }
+        public int getTotalWeights() {
+            int wt = 0;
+            for (SchematicDef sd : schematics) {
+                if (sd.weight > 0)
+                    wt += sd.weight;
+            }
+            return wt;
+        }
+        public int getEqualWeightCount() {
+            int cnt = 0;
+            for (SchematicDef sd : schematics) {
+                if (sd.weight <= 0) {
+                    cnt++;
+                }
+            }
+            return cnt;
+        }
+        public SchematicDef getRandomSchematic() {
+            int total = getTotalWeights();
+            int cnt = getEqualWeightCount();
+            int rndval = 0;
+            // If any fixed weights
+            if (total > 0) {
+                // If total fixed more than 100, or equal weight count is zero
+                if ((total > 100) || (cnt == 0)) {
+                    rndval = rnd.nextInt(total);    // Random from 0 to total-1
+                }
+                else {
+                    rndval = rnd.nextInt(100);      // From 0 to 100 
+                }
+                if (rndval < total) {   // Fixed weight match
+                    for (SchematicDef def : schematics) {
+                        if (def.weight > 0) {
+                            rndval -= def.weight;
+                            if (rndval < 0) {   // Match?
+                                return def;
+                            }
+                        }
+                    }
+                }
+            }
+            if (cnt > 0) {
+                rndval = rnd.nextInt(cnt);  // Pick from equal weight values
+                for (SchematicDef def : schematics) {
+                    if (def.weight < 0) {
+                        rndval--;
+                        if (rndval < 0) {
+                            return def;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+    }
+    
+    public class SchematicBrushInstance implements Brush {
+        SchematicSet set;
+        LocalPlayer player;
+        boolean skipair;
+        int yoff;
+        Placement place;
+        
+        public void build(EditSession editsession, Vector pos,
+                com.sk89q.worldedit.patterns.Pattern mat, double size)
+                throws MaxChangedBlocksException {
+            SchematicDef def = set.getRandomSchematic();    // Pick schematic from set
+            if (def == null) return;
+            LocalSession sess = we.getSession(player);
+            int[] minY = new int[1];
+            String schfilename = loadSchematicIntoClipboard(player, sess, def.name, def.format, minY);
+            if (schfilename == null) {
+                return;
+            }
+            CuboidClipboard clip = null;
+            try {
+                clip = sess.getClipboard();
+            } catch (EmptyClipboardException e) {
+                player.printError("Schematic is empty");
+                return;
+            }
+            // Get rotation for clipboard
+            Rotation rot = def.getRotation();
+            if (rot != Rotation.ROT0) {
+                clip.rotate2D(rot.ordinal() * 90);
+            }
+            // Get flip option
+            Flip flip = def.getFlip();
+            switch (flip) {
+                case NS:
+                    clip.flip(FlipDirection.NORTH_SOUTH);
+                    break;
+                case EW:
+                    clip.flip(FlipDirection.WEST_EAST);
+                    break;
+                default:
+                    break;
+            }
+            // And apply clipboard to edit session
+            Vector csize = clip.getSize();
+            Vector ppos;
+            if (place == Placement.DROP) {
+                ppos = pos.subtract(csize.getX() / 2, -def.offset - yoff - minY[0] + 1, csize.getZ() / 2);
+            }
+            else if (place == Placement.BOTTOM) {
+                ppos = pos.subtract(csize.getX() / 2, -def.offset -yoff + 1, csize.getZ() / 2);
+            }
+            else { // Else, default is CENTER (same as clipboard brush
+                ppos = pos.subtract(csize.getX() / 2, (csize.getY() / 2) - yoff - def.offset, csize.getZ() / 2);
+            }
+            clip.place(editsession, ppos, skipair);
+            player.print("Applied '" + schfilename + "', flip=" + flip.name() + ", rot=" + rot.deg + ", place=" + place.name());
+        }
     }
 }

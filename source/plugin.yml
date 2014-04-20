@@ -1,12 +1,13 @@
 name: SchematicBrush
 main: com.mikeprimm.bukkit.SchematicBrush.SchematicBrush
-version: "0.5 Alpha"
-author: mikeprimm
+version: "0.6 Final"
+authors: [mikeprimm, mariomarco]
 depend: [ WorldEdit ]
 
 commands:
   /schbr:
     description: Set brush to schematic brush.
+    aliases: [/sb, /schembr, /schematicBrush]
     usage: |
        /<command> <schematic> ... - set brush tool to given set of <schematic> patterns
        /<command> &<id> - set brush tool to use schematic set <id>
@@ -18,6 +19,7 @@ commands:
        
   /schset:
     description: Define a schematic set (same format as //schbr command)
+    aliases: [/sbset, /schemset, /schematicSet]
     usage: |
        /<command> list - list all schematic sets
        /<command> list <matchstring> - list all schematic sets containing the string <matchstring> in their ID
@@ -31,12 +33,27 @@ commands:
        
   /schlist:
     description: List schematics available
+    aliases: [/sblist, /schemlist, /schematicList]
     usage: |
        /<command> - list first set of *.schematic files
        /<command> <#> - list Nth set of *.schematic files
        /<command> <ext> - list first set of *.<ext> files
        /<command> <ext> <#> - list Nth set of *.<ext> files
+       
+  /schreload:
+    description: Reloads the configuration
+    aliases: [/sbreload,/schemreload, /schematicReload]
+    usage: |
+       /<command> - reloads config
 
+  /sch:
+    description: Shows help
+    aliases: [/sbhub]
+    usage: |
+       /<command> - hub for all commands
+       /<command> <subcommand> - like reload list...
+       /<command> help - Provides help
+       
 permissions:
   schematicbrush.*:
     description: Gives access to all schematic brush functions
@@ -51,6 +68,7 @@ permissions:
       schematicbrush.set.use: true
       schematicbrush.brush.use: true
       schematicbrush.list: true
+      schematicbrush.reload: true
   schematicbrush.set.list:
     description: Allows //schset list command
     default: op
@@ -80,4 +98,7 @@ permissions:
     default: op
   schematicbrush.list:
     description: Allows use of //schlist command
+    default: op
+  schematicbrush.reload:
+    description: Allows use of //schreload command
     default: op
