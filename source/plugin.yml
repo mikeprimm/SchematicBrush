@@ -1,6 +1,6 @@
 name: SchematicBrush
 main: com.mikeprimm.bukkit.SchematicBrush.SchematicBrush
-version: "0.6 Final"
+version: "0.7 Beta"
 authors: [mikeprimm, mariomarco]
 depend: [ WorldEdit ]
 

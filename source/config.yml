@@ -1,4 +1,10 @@
 # SchematicBrush configuration
 Config:
-  Formatting: '[@:#^]'
+  Formatting:
+    Rotation:  '|r'
+    Flip:      '|f'
+    Weight:    '|w'
+    Extension: '|e'
+    Offset:    '|o'
+    Close:     '|'
   Debug: false

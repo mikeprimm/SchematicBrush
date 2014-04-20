@@ -53,7 +53,12 @@ import com.sk89q.worldedit.data.DataException;
 public class SchematicBrush extends JavaPlugin {
 	
     public CommandsManager<CommandSender> cmdmgr;
-	public String FormattingString;
+	public String FormattingRotation;
+	public String FormattingWeight;
+	public String FormattingFlip;
+	public String FormattingExtension;
+	public String FormattingOffset;
+	public String FormattingClose;
 	public Logger log;
     public WorldEdit we;
     public WorldEditPlugin wep;
@@ -109,114 +114,100 @@ public class SchematicBrush extends JavaPlugin {
     //   String Manipulation                                       //
     //-------------------------------------------------------------*/
     
+    private int getIntViaSubstring(String text,String startingSequence, String closeSequence){	
+    	return Integer.parseInt(text.substring(text.indexOf(startingSequence)+ startingSequence.length(), text.indexOf(closeSequence, text.indexOf(startingSequence)+ startingSequence.length())));
+    }
+    
     private SchematicDef parseSchematic(LocalPlayer player, String sch) {
-    	//Compiling FormattingString to regex
-    	String[] toks = Pattern.compile(FormattingString).split(sch, 0);
-        String formatName = "schematic";
-        final String name = toks[0];  // Name is first
-        Rotation rot = Rotation.ROT0;
-        Flip flip = Flip.NONE;
-        int wt = DEFAULT_WEIGHT;
-        int offset = 0;
-        
-        printDebug(Level.FINE, "FormattingString : " + FormattingString + " , toks: " + toks.length);
-        
-        for (int i = 1, off = toks[0].length(); i < toks.length; i++) {
-            char sep = sch.charAt(off);
-            off = off + 1 + toks[i].length();
-            String v = toks[i];
-            if (sep == FormattingString.charAt(1)) { // Rotation/flip?
-                if (v.startsWith("*")) {  // random rotate?
-                    rot = Rotation.RANDOM;
-                    v = v.substring(1);
-                }
-                else {  // Else, must be number
-                    rot = Rotation.ROT0;
-                    int coff;
-                    int val = 0;
-                    for (coff = 0; coff < v.length(); coff++) {
-                        if (Character.isDigit(v.charAt(coff))) {
-                            val = (val * 10) + (v.charAt(coff) - '0');
-                        }
-                        else {
-                            break;
-                        }
-                    }
-                    // If not multiple of 90, error
-                    if ((val % 90) != 0) {
-                        return null;
-                    }
-                    rot = Rotation.values()[((val / 90) % 4)];    // Clamp to 0-270
-                    v = v.substring(coff);
-                }
-                if (v.length() == 0) {	//Flipping
-                    flip = Flip.NONE;
-                }
-                else {
-                    char c = v.toLowerCase().charAt(0);  //ignoring Case
-                    switch (c) {
-                        case '*':
-                            flip = Flip.RANDOM;			//Random Flipping
-                            break;
-                        case 'n':
-                        case 's':
-                            flip = Flip.NS;				//Flip North-South
-                            break;
-                        case 'e':
-                        case 'w':
-                            flip = Flip.EW;				//Flip East-West
-                            break;
-                        default:
-                            return null;
-                    }
-                }
-            }
-            else if (sep == FormattingString.charAt(2)) { // weight
-                try {
-                    wt = Integer.parseInt(toks[i]);
-                } catch (NumberFormatException nfx) {
-                    return null;
-                }
-            }
-            else if (sep == FormattingString.charAt(3)) { // format name
-                formatName = toks[i];
-            }
-            else if (sep == FormattingString.charAt(4)) { // Offset
-                try {
-                    offset = Integer.parseInt(toks[i]);
-                } catch (NumberFormatException nfx) {
-                    return null;
-                }
-            }
-        }
-        // See if schematic name is valid
-        File dir = getDirectoryForFormat(formatName);
         try {
-            String fname = this.resolveName(player, dir, name, formatName);
-            if (fname == null) {
-                return null;
-            }
-            File f = we.getSafeOpenFile(player, dir, fname, formatName);
-            if (!f.exists()) {
-                return null;
-            }
-            if ((formatName.equals("schematic") == false) && (formatName.equals("bo2") == false)) {
-                return null;
-            }
-            // If we're here, everything is good - make schematic object
-            SchematicDef schematic = new SchematicDef();
-            schematic.name = name;
-            schematic.format = formatName;
-            schematic.rotation = rot;
-            schematic.flip = flip;
-            schematic.weight = wt;
-            schematic.offset = offset;
-            
-            return schematic;
-        } catch (FilenameException fx) {
-        	fx.printStackTrace();
-            return null;
-        }
+			String formatName = "schematic";
+			Rotation rot = Rotation.ROT0;
+			Flip flip = Flip.NONE;
+			int wt = DEFAULT_WEIGHT;
+			int offset = 0;
+			String finName;
+			
+			finName = sch.substring(0, sch.indexOf(FormattingClose));
+			if(sch.contains(FormattingRotation)){
+				int schrot = getIntViaSubstring(sch,FormattingRotation,FormattingClose);
+				if(Integer.toString(schrot) == "*"){
+					rot=Rotation.RANDOM;
+					schrot = -1;
+				}else if(schrot % 90 == 0){
+					switch(schrot){
+					case 90:
+						rot =Rotation.ROT90;
+						break;
+					case 180:
+						rot =Rotation.ROT180;
+						break;
+					case 270:
+						rot =Rotation.ROT270;
+						break;
+					case 0:
+					case 360:
+					default:
+						rot =Rotation.ROT0;
+						break;
+					}
+				}else{
+					return null;
+				}
+			}
+			if(sch.contains(FormattingFlip)){
+				switch(sch.toLowerCase().charAt(sch.indexOf(FormattingFlip) + FormattingFlip.length())){
+					case '*':
+						flip = Flip.RANDOM;
+						break;
+					case 'n':
+					case 's':
+						flip = Flip.NS;
+						break;
+					case 'e':
+					case 'w':
+						flip = Flip.EW;
+						break;	
+					default:
+						flip = Flip.NONE;
+				}   
+			}
+			if(sch.contains(FormattingWeight)){
+				int schweight = getIntViaSubstring(sch, FormattingWeight, FormattingClose);
+				if(schweight <= 100){
+					wt = schweight;
+				}else{
+					return null;
+				}
+			}
+			if(sch.contains(FormattingOffset)){
+				int schoff = getIntViaSubstring(sch, FormattingOffset, FormattingClose);
+				if(schoff <= 256){
+					offset = schoff;
+				}else{
+					return null;
+				}
+			}
+			if(sch.contains(FormattingExtension)){
+				String schext = sch.substring(sch.indexOf(FormattingExtension)+ FormattingExtension.length(), sch.indexOf(FormattingClose, sch.indexOf(FormattingExtension)+ FormattingExtension.length())).toLowerCase();
+				if(schext == "schematic" || schext == "bo2"){
+					formatName = schext;
+				}else{
+					return null;
+				}
+			}
+			SchematicDef schematic = new SchematicDef();
+			
+			schematic.name = finName;
+			schematic.format = formatName;
+			schematic.rotation = rot;
+			schematic.flip = flip;
+			schematic.weight = wt;
+			schematic.offset = offset;
+			return schematic;
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null;
+		}   
     }
 
     private String resolveName(LocalPlayer player, File dir, String fname, final String ext) {
@@ -244,7 +235,7 @@ public class SchematicBrush extends JavaPlugin {
                 return null;
             }
         }
-        return fname;
+        return fname + "." +  ext;
     }
     
     private void printDebug(Level lvl, String msg){
@@ -719,10 +710,14 @@ public class SchematicBrush extends JavaPlugin {
             }
             this.saveConfig();
         }
-        
-        FormattingString = getConfig().getString("Config.Formatting");
+        FormattingClose = getConfig().getString("Config.Formatting.Close");
+        FormattingRotation = getConfig().getString("Config.Formatting.Rotation");
+        FormattingFlip = getConfig().getString("Config.Formatting.Flip");
+        FormattingWeight = getConfig().getString("Config.Formatting.Weight");
+        FormattingExtension = getConfig().getString("Config.Formatting.Extension");
+        FormattingOffset = getConfig().getString("Config.Formatting.Offset");
         Debug = getConfig().getBoolean("Config.Debug");
-        printDebug(Level.INFO,"RELOADED! Debug: true, Formatting: " + FormattingString);
+        printDebug(Level.INFO,"RELOADED! Debug: true");
     }
     
     private void loadSchematicSets() {
@@ -907,12 +902,12 @@ public class SchematicBrush extends JavaPlugin {
                         blockId = Integer.parseInt(spec);
                     } else {
                         blockId = Integer.parseInt(spec.substring(0, p));
-                        p2 = spec.indexOf(FormattingString.charAt(3), p + 1);
+                        p2 = spec.indexOf('#', p + 1);
                         if (p2 == -1) {
                             data = Integer.parseInt(spec.substring(p + 1));
                         } else {
                             data = Integer.parseInt(spec.substring(p + 1, p2));
-                            p = spec.indexOf(FormattingString.charAt(1), p2 + 1);
+                            p = spec.indexOf('@', p2 + 1);
                             //branch = new int[] {Integer.parseInt(spec.substring(p2 + 1, p)), Integer.parseInt(spec.substring(p + 1))};
                         }
                     }
@@ -1049,13 +1044,13 @@ public class SchematicBrush extends JavaPlugin {
         public String CustomtoString() {
             String n = this.name;
             if (format != null)
-                n += FormattingString.charAt(3) + format;
+                n += FormattingExtension + format + FormattingClose;
             if ((rotation != Rotation.ROT0) || (flip != Flip.NONE)) {
-                n += FormattingString.charAt(1);
+                n += FormattingRotation;
                 if (rotation == Rotation.RANDOM)
-                    n += '*';
+                    n += '*' + FormattingClose;
                 else
-                    n += (90 * rotation.ordinal());
+                    n += (90 * rotation.ordinal()) + FormattingClose;
             }
             if (flip == Flip.RANDOM) {
                 n += '*';
@@ -1067,10 +1062,10 @@ public class SchematicBrush extends JavaPlugin {
                 n += 'E';
             }
             if (weight >= 0) {
-                n += FormattingString.charAt(2) + weight;
+                n += FormattingWeight + weight + FormattingClose;
             }
             if (offset != 0) {
-                n += FormattingString.charAt(4) + offset;
+                n += FormattingOffset + offset + FormattingClose;
             }
             return n;
         }
