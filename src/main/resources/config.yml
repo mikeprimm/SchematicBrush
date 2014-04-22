@@ -1,5 +1,10 @@
 # SchematicBrush configuration
-schematic-sets:
-
-
-  
+Config:
+  Formatting:
+    Rotation:  '|r'
+    Flip:      '|f'
+    Weight:    '|w'
+    Extension: '|e'
+    Offset:    '|o'
+    Close:     '|'
+  Debug: false
