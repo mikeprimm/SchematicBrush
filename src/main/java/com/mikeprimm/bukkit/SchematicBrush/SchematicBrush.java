@@ -910,6 +910,7 @@ public class SchematicBrush extends JavaPlugin {
     
     private void getMatchingFiles(List<String> rslt, File dir, Pattern p, String path) {
         File[] fl = dir.listFiles();
+        if (fl == null) return;
         for (File f : fl) {
             String n = (path == null) ? f.getName() : (path + "/" + f.getName());
             if (f.isDirectory()) {
