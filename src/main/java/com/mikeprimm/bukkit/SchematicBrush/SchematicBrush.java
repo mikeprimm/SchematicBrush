@@ -1,9 +1,9 @@
 package com.mikeprimm.bukkit.SchematicBrush;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
@@ -28,25 +28,35 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import com.sk89q.minecraft.util.commands.CommandsManager;
-import com.sk89q.worldedit.masks.BlockMask;
-import com.sk89q.worldedit.schematic.SchematicFormat;
-import com.sk89q.worldedit.tools.BrushTool;
-import com.sk89q.worldedit.tools.brushes.Brush;
-import com.sk89q.worldedit.CuboidClipboard;
-import com.sk89q.worldedit.CuboidClipboard.FlipDirection;
+import com.sk89q.worldedit.regions.CuboidRegion;
+import com.sk89q.worldedit.regions.Region;
+import com.sk89q.worldedit.session.ClipboardHolder;
+import com.sk89q.worldedit.session.PasteBuilder;
+import com.sk89q.worldedit.util.Direction;
+import com.sk89q.worldedit.util.io.file.FilenameException;
+import com.sk89q.worldedit.world.registry.WorldData;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.EmptyClipboardException;
-import com.sk89q.worldedit.FilenameException;
-import com.sk89q.worldedit.InvalidToolBindException;
-import com.sk89q.worldedit.LocalPlayer;
 import com.sk89q.worldedit.LocalSession;
 import com.sk89q.worldedit.MaxChangedBlocksException;
 import com.sk89q.worldedit.Vector;
 import com.sk89q.worldedit.WorldEdit;
+import com.sk89q.worldedit.WorldEditException;
 import com.sk89q.worldedit.blocks.BaseBlock;
 import com.sk89q.worldedit.blocks.BlockID;
 import com.sk89q.worldedit.bukkit.WorldEditPlugin;
-import com.sk89q.worldedit.data.DataException;
+import com.sk89q.worldedit.command.tool.BrushTool;
+import com.sk89q.worldedit.command.tool.InvalidToolBindException;
+import com.sk89q.worldedit.command.tool.brush.Brush;
+import com.sk89q.worldedit.entity.Player;
+import com.sk89q.worldedit.extension.platform.Actor;
+import com.sk89q.worldedit.extent.clipboard.BlockArrayClipboard;
+import com.sk89q.worldedit.extent.clipboard.Clipboard;
+import com.sk89q.worldedit.extent.clipboard.io.ClipboardFormat;
+import com.sk89q.worldedit.extent.clipboard.io.ClipboardReader;
+import com.sk89q.worldedit.function.mask.BlockMask;
+import com.sk89q.worldedit.function.operation.Operations;
+import com.sk89q.worldedit.math.transform.AffineTransform;
 
 public class SchematicBrush extends JavaPlugin {
     public Logger log;
@@ -201,25 +211,27 @@ public class SchematicBrush extends JavaPlugin {
     
     public class SchematicBrushInstance implements Brush {
         SchematicSet set;
-        LocalPlayer player;
+        Player player;
         boolean skipair;
+        boolean replaceall;
         int yoff;
         Placement place;
         
-        public void build(EditSession editsession, Vector pos,
-                com.sk89q.worldedit.patterns.Pattern mat, double size)
-                throws MaxChangedBlocksException {
+        @Override
+        public void build(EditSession editsession, Vector pos, com.sk89q.worldedit.function.pattern.Pattern mat, double size) throws MaxChangedBlocksException {
             SchematicDef def = set.getRandomSchematic();    // Pick schematic from set
             if (def == null) return;
-            LocalSession sess = we.getSession(player);
+            LocalSession sess = we.getSessionManager().get(player);
             int[] minY = new int[1];
             String schfilename = loadSchematicIntoClipboard(player, sess, def.name, def.format, minY);
             if (schfilename == null) {
                 return;
             }
-            CuboidClipboard clip = null;
+            ClipboardHolder cliph = null;
+            Clipboard clip = null;
             try {
-                clip = sess.getClipboard();
+                cliph = sess.getClipboard();
+                clip = cliph.getClipboard();
             } catch (EmptyClipboardException e) {
                 player.printError("Schematic is empty");
                 return;
@@ -227,35 +239,54 @@ public class SchematicBrush extends JavaPlugin {
             // Get rotation for clipboard
             Rotation rot = def.getRotation();
             if (rot != Rotation.ROT0) {
-                clip.rotate2D(rot.ordinal() * 90);
+                rotate2D(cliph, rot);
             }
             // Get flip option
             Flip flip = def.getFlip();
             switch (flip) {
                 case NS:
-                    clip.flip(FlipDirection.NORTH_SOUTH);
+                    flip(cliph, Direction.NORTH);
                     break;
                 case EW:
-                    clip.flip(FlipDirection.WEST_EAST);
+                    flip(cliph, Direction.WEST);
                     break;
                 default:
                     break;
             }
+            Region region = clip.getRegion();
+            Vector centerOffset = region.getCenter().subtract(clip.getOrigin());
+
             // And apply clipboard to edit session
-            Vector csize = clip.getSize();
             Vector ppos;
             if (place == Placement.DROP) {
-                ppos = pos.subtract(csize.getX() / 2, -def.offset - yoff - minY[0] + 1, csize.getZ() / 2);
+                ppos = pos.subtract(centerOffset.getX(), -def.offset - yoff - minY[0] + 1, centerOffset.getZ());
             }
             else if (place == Placement.BOTTOM) {
-                ppos = pos.subtract(csize.getX() / 2, -def.offset -yoff + 1, csize.getZ() / 2);
+                ppos = pos.subtract(centerOffset.getX() / 2, -def.offset -yoff + 1, centerOffset.getZ());
             }
             else { // Else, default is CENTER (same as clipboard brush
-                ppos = pos.subtract(csize.getX() / 2, (csize.getY() / 2) - yoff - def.offset, csize.getZ() / 2);
+                ppos = pos.subtract(centerOffset);
             }
-            clip.place(editsession, ppos, skipair);
+            if (!replaceall) {
+                editsession.setMask(new BlockMask(editsession, new BaseBlock(BlockID.AIR, -1)));
+            }
+            PasteBuilder pb = cliph.createPaste(editsession, editsession.getWorld().getWorldData()).to(ppos)
+                    .ignoreAirBlocks(skipair);
+            Operations.completeLegacy(pb.build());
             player.print("Applied '" + schfilename + "', flip=" + flip.name() + ", rot=" + rot.deg + ", place=" + place.name());
         }
+    }
+    
+    private void rotate2D(ClipboardHolder cliph, Rotation rot) {
+        AffineTransform transform = new com.sk89q.worldedit.math.transform.AffineTransform();
+        transform = transform.rotateY(rot.ordinal() * 90);
+        cliph.setTransform(cliph.getTransform().combine(transform));
+    }
+    
+    private void flip(ClipboardHolder cliph, Direction dir) {
+        AffineTransform transform = new AffineTransform();
+        transform = transform.scale(dir.toVector().positive().multiply(-2).add(1, 1, 1));
+        cliph.setTransform(cliph.getTransform().combine(transform));
     }
    
     public SchematicBrush() {
@@ -314,7 +345,12 @@ public class SchematicBrush extends JavaPlugin {
     }    
     
     private boolean handleSCHBRCommand(CommandSender sender, Command cmd, String[] args) {
-        LocalPlayer player = wep.wrapCommandSender(sender);
+        Actor actor = wep.wrapCommandSender(sender);
+        if (!(actor instanceof Player)) {
+            sender.sendMessage("This can only be used by players");
+            return true;
+        }
+        Player player = (Player) actor;
         // Test for command access
         if (!player.hasPermission("schematicbrush.brush.use")) {
             sender.sendMessage("You do not have access to this command");
@@ -385,7 +421,7 @@ public class SchematicBrush extends JavaPlugin {
             }
         }
         // Connect to world edit session
-        LocalSession session = we.getSession(player);
+        LocalSession session = we.getSessionManager().get(player);
 
         SchematicBrushInstance sbi = new SchematicBrushInstance();
         sbi.set = ss;
@@ -393,14 +429,12 @@ public class SchematicBrush extends JavaPlugin {
         sbi.skipair = skipair;
         sbi.yoff = yoff;
         sbi.place = place;
+        sbi.replaceall = replaceall;
         // Get brush tool
         BrushTool tool;
         try {
             tool = session.getBrushTool(player.getItemInHand());
             tool.setBrush(sbi, "schematicbrush.brush.use");
-            if (!replaceall) {
-                tool.setMask(new BlockMask(new BaseBlock(BlockID.AIR, -1)));
-            }
             player.print("Schematic brush set");
         } catch (InvalidToolBindException e) {
             player.print(e.getMessage());
@@ -415,7 +449,7 @@ public class SchematicBrush extends JavaPlugin {
             return false;
         }
         // Wrap sender
-        LocalPlayer player = wep.wrapCommandSender(sender);
+        Actor player = wep.wrapCommandSender(sender);
         // Test for command access
         if (!player.hasPermission("schematicbrush.set." + args[0])) {
             sender.sendMessage("You do not have access to this command");
@@ -446,7 +480,7 @@ public class SchematicBrush extends JavaPlugin {
         return false;
     }
     
-    private boolean handleSCHSETList(LocalPlayer player, String[] args) {
+    private boolean handleSCHSETList(Actor player, String[] args) {
         String contains = null;
         if (args.length > 2) {
             contains = args[1];
@@ -466,7 +500,7 @@ public class SchematicBrush extends JavaPlugin {
         return true;
     }
 
-    private boolean handleSCHSETCreate(LocalPlayer player, String[] args) {
+    private boolean handleSCHSETCreate(Actor player, String[] args) {
         if (args.length < 2) {
             player.print("Missing set ID");
             return true;
@@ -495,7 +529,7 @@ public class SchematicBrush extends JavaPlugin {
         return true;
     }
 
-    private boolean handleSCHSETDelete(LocalPlayer player, String[] args) {
+    private boolean handleSCHSETDelete(Actor player, String[] args) {
         if (args.length < 2) {
             player.print("Missing set ID");
             return true;
@@ -514,7 +548,7 @@ public class SchematicBrush extends JavaPlugin {
         return true;
     }
 
-    private boolean handleSCHSETAppend(LocalPlayer player, String[] args) {
+    private boolean handleSCHSETAppend(Actor player, String[] args) {
         if (args.length < 2) {
             player.print("Missing set ID");
             return true;
@@ -542,7 +576,7 @@ public class SchematicBrush extends JavaPlugin {
         return true;
     }
 
-    private boolean handleSCHSETRemove(LocalPlayer player, String[] args) {
+    private boolean handleSCHSETRemove(Actor player, String[] args) {
         if (args.length < 2) {
             player.print("Missing set ID");
             return true;
@@ -577,7 +611,7 @@ public class SchematicBrush extends JavaPlugin {
         return true;
     }
 
-    private boolean handleSCHSETSetDesc(LocalPlayer player, String[] args) {
+    private boolean handleSCHSETSetDesc(Actor player, String[] args) {
         if (args.length < 2) {
             player.print("Missing set ID");
             return true;
@@ -605,7 +639,7 @@ public class SchematicBrush extends JavaPlugin {
         return true;
     }
 
-    private boolean handleSCHSETGet(LocalPlayer player, String[] args) {
+    private boolean handleSCHSETGet(Actor player, String[] args) {
         if (args.length < 2) {
             player.print("Missing set ID");
             return true;
@@ -656,7 +690,12 @@ public class SchematicBrush extends JavaPlugin {
     private static final int LINES_PER_PAGE = 10;
     private boolean handleSCHLISTCommand(CommandSender sender, Command cmd, String[] args) {
         // Wrap sender
-        LocalPlayer player = wep.wrapCommandSender(sender);
+        Actor actor = wep.wrapCommandSender(sender);
+        if ((actor instanceof Player) == false) {
+            sender.sendMessage("Only usable by player");
+            return true;
+        }
+        Player player = (Player) actor;
         // Test for command access
         if (!player.hasPermission("schematicbrush.list")) {
             sender.sendMessage("You do not have access to this command");
@@ -691,7 +730,7 @@ public class SchematicBrush extends JavaPlugin {
         
     private static final Pattern schsplit = Pattern.compile("[@:#^]");
     
-    private SchematicDef parseSchematic(LocalPlayer player, String sch) {
+    private SchematicDef parseSchematic(Actor player, String sch) {
         String[] toks = schsplit.split(sch, 0);
         final String name = toks[0];  // Name is first
         String formatName = "schematic";
@@ -779,7 +818,7 @@ public class SchematicBrush extends JavaPlugin {
             if (fname == null) {
                 return null;
             }
-            File f = we.getSafeOpenFile(player, dir, fname, formatName);
+            File f = we.getSafeOpenFile(null, dir, fname, formatName);
             if (!f.exists()) {
                 return null;
             }
@@ -804,7 +843,7 @@ public class SchematicBrush extends JavaPlugin {
     private void loadSchematicSets() {
         sets.clear(); // Reset sets
         
-        LocalPlayer console = wep.wrapCommandSender(getServer().getConsoleSender());
+        Actor console = wep.wrapCommandSender(getServer().getConsoleSender());
         FileConfiguration cfg = this.getConfig();
         ConfigurationSection sect = cfg.getConfigurationSection("schematic-sets");
         if (sect == null) {
@@ -886,7 +925,7 @@ public class SchematicBrush extends JavaPlugin {
     }
 
     /* Resolve name to loadable name - if contains wildcards, pic random matching file */
-    private String resolveName(LocalPlayer player, File dir, String fname, final String ext) {
+    private String resolveName(Actor player, File dir, String fname, final String ext) {
         // If command-line style wildcards
         if ((!fname.startsWith("^")) && ((fname.indexOf('*') >= 0) || (fname.indexOf('?') >= 0))) {
             // Compile to regex
@@ -913,7 +952,7 @@ public class SchematicBrush extends JavaPlugin {
         return fname;
     }
     
-    private String loadSchematicIntoClipboard(LocalPlayer player, LocalSession sess, String fname, String format, int[] bottomY) {
+    private String loadSchematicIntoClipboard(Player player, LocalSession sess, String fname, String format, int[] bottomY) {
         File dir = getDirectoryForFormat(format);
         if (dir == null) {
             player.printError("Schematic '" + fname + "' invalid format - " + format);
@@ -927,20 +966,21 @@ public class SchematicBrush extends JavaPlugin {
         File f;
         boolean rslt = false;
         try {
-            f = we.getSafeOpenFile(player, dir, name, format);
+            f = we.getSafeOpenFile(null, dir, name, format);
             if (!f.exists()) {
                 player.printError("Schematic '" + name + "' file not found");
                 return null;
             }
             // Figure out format to use
             if (format.equals("schematic")) {
-                SchematicFormat fmt = SchematicFormat.getFormat(f);
+                ClipboardFormat fmt = ClipboardFormat.findByFile(f);
+
                 if (fmt == null) {
                     player.printError("Schematic '" + name + "' format not found");
                     return null;
                 }
-                if (!fmt.isOfFormat(f)) {
-                    player.printError("Schematic '" + name + "' is not correct format (" + fmt.getName() + ")");
+                if (!fmt.isFormat(f)) {
+                    player.printError("Schematic '" + name + "' is not correct format (" + fmt + ")");
                     return null;
                 }
                 String filePath = f.getCanonicalPath();
@@ -949,12 +989,18 @@ public class SchematicBrush extends JavaPlugin {
                 if (!filePath.substring(0, dirPath.length()).equals(dirPath)) {
                     return null;
                 } else {
-                    CuboidClipboard cc = fmt.load(f);
+                    FileInputStream fis = new FileInputStream(f);
+                    BufferedInputStream bis = new BufferedInputStream(fis);
+                    ClipboardReader reader = fmt.getReader(bis);
+
+                    WorldData worldData = player.getWorld().getWorldData();
+                    Clipboard cc = reader.read(player.getWorld().getWorldData());
                     if (cc != null) {
-                        int minY = cc.getHeight() - 1;
-                        for (int y = 0; (minY == -1) && (y < cc.getHeight()); y++) {
-                            for (int x = 0; (minY == -1) && (x < cc.getWidth()); x++) {
-                                for (int z = 0; (minY == -1) && (z < cc.getLength()); z++) {
+                        Region reg = cc.getRegion();
+                        int minY = reg.getHeight() - 1;
+                        for (int y = 0; (minY == -1) && (y < reg.getHeight()); y++) {
+                            for (int x = 0; (minY == -1) && (x < reg.getWidth()); x++) {
+                                for (int z = 0; (minY == -1) && (z < reg.getLength()); z++) {
                                     if (cc.getBlock(new Vector(x, y, z)) != null) {
                                         minY = y;
                                         break;
@@ -963,16 +1009,17 @@ public class SchematicBrush extends JavaPlugin {
                             }
                         }
                         bottomY[0] = minY;
-                        sess.setClipboard(cc);
+                        sess.setClipboard(new ClipboardHolder(cc, worldData));
                         rslt = true;
                     }
                 }
             }
             // Else if BO2 file
             else if (format.equals("bo2")) {
-                CuboidClipboard cc = loadBOD2File(f);
+                Clipboard cc = loadBOD2File(f);
                 if (cc != null) {
-                    sess.setClipboard(cc);
+                    WorldData worldData = player.getWorld().getWorldData();
+                    sess.setClipboard(new ClipboardHolder(cc, worldData));
                     rslt = true;
                     bottomY[0] = 0; // Always zero for these: we compact things to bottom
                 }
@@ -982,8 +1029,6 @@ public class SchematicBrush extends JavaPlugin {
             }
         } catch (FilenameException e1) {
             player.printError(e1.getMessage());
-        } catch (DataException e) {
-            player.printError("Error loading schematic '" + name + "'");
         } catch (IOException e) {
             player.printError("Error reading schematic '" + name + "' - " + e.getMessage());
         }
@@ -991,8 +1036,8 @@ public class SchematicBrush extends JavaPlugin {
         return (rslt)?name:null;
     }
     
-    private CuboidClipboard loadBOD2File(File f) throws IOException {
-        CuboidClipboard cc = null;
+    private Clipboard loadBOD2File(File f) throws IOException {
+        Clipboard cc = null;
         
         BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(f), Charset.forName("US-ASCII")));
         try {
@@ -1072,12 +1117,15 @@ public class SchematicBrush extends JavaPlugin {
             }
             Vector size = new Vector(highestX - lowestX + 1, highestZ - lowestZ + 1, highestY - lowestY + 1);
             Vector offset = new Vector(-lowestX, -lowestZ, -lowestY);
-            cc = new CuboidClipboard(size, offset);
+            Region reg = new CuboidRegion(size, offset);
+            cc = new BlockArrayClipboard(reg);
             for (Vector v : blocks.keySet()) {
                 int[] ids = blocks.get(v);
                 Vector vv = new Vector(v.getX() - lowestX, v.getZ() - lowestZ, v.getY() - lowestY);
                 cc.setBlock(vv, new BaseBlock(ids[0], ids[1]));
             }
+        } catch (WorldEditException e) {
+            log.info("WorldEdit exception: " + e.getMessage());
         } finally {
             in.close();
         }
