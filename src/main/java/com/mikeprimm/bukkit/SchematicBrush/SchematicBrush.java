@@ -231,7 +231,6 @@ public class SchematicBrush extends JavaPlugin {
             Clipboard clip = null;
             try {
                 cliph = sess.getClipboard();
-                clip = cliph.getClipboard();
             } catch (EmptyClipboardException e) {
                 player.printError("Schematic is empty");
                 return;
@@ -253,19 +252,22 @@ public class SchematicBrush extends JavaPlugin {
                 default:
                     break;
             }
+            clip = cliph.getClipboard();
             Region region = clip.getRegion();
-            Vector centerOffset = region.getCenter().subtract(clip.getOrigin());
+            Vector clipOrigin = clip.getOrigin();
+            Vector centerOffset = region.getCenter().subtract(clipOrigin);
 
+            //player.print("clipOrigin=" + clipOrigin + ", centerOffset=" + centerOffset + ",pos=" + pos);
             // And apply clipboard to edit session
             Vector ppos;
             if (place == Placement.DROP) {
                 ppos = pos.subtract(centerOffset.getX(), -def.offset - yoff - minY[0] + 1, centerOffset.getZ());
             }
             else if (place == Placement.BOTTOM) {
-                ppos = pos.subtract(centerOffset.getX() / 2, -def.offset -yoff + 1, centerOffset.getZ());
+                ppos = pos.subtract(centerOffset.getX(), -def.offset -yoff + 1, centerOffset.getZ());
             }
             else { // Else, default is CENTER (same as clipboard brush
-                ppos = pos.subtract(centerOffset);
+                ppos = pos.subtract(centerOffset.getX(), centerOffset.getY() - def.offset - yoff + 1, centerOffset.getZ());
             }
             if (!replaceall) {
                 editsession.setMask(new BlockMask(editsession, new BaseBlock(BlockID.AIR, -1)));
