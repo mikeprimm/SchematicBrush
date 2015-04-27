@@ -235,40 +235,45 @@ public class SchematicBrush extends JavaPlugin {
                 player.printError("Schematic is empty");
                 return;
             }
+            AffineTransform trans = new AffineTransform();
             // Get rotation for clipboard
             Rotation rot = def.getRotation();
             if (rot != Rotation.ROT0) {
-                rotate2D(cliph, rot);
+                trans = rotate2D(trans, rot);
             }
             // Get flip option
             Flip flip = def.getFlip();
             switch (flip) {
                 case NS:
-                    flip(cliph, Direction.NORTH);
+                    trans = flip(trans, Direction.NORTH);
                     break;
                 case EW:
-                    flip(cliph, Direction.WEST);
+                    trans = flip(trans, Direction.WEST);
                     break;
                 default:
                     break;
             }
+            cliph.setTransform(trans);
+
             clip = cliph.getClipboard();
             Region region = clip.getRegion();
             Vector clipOrigin = clip.getOrigin();
             Vector centerOffset = region.getCenter().subtract(clipOrigin);
 
-            //player.print("clipOrigin=" + clipOrigin + ", centerOffset=" + centerOffset + ",pos=" + pos);
             // And apply clipboard to edit session
             Vector ppos;
             if (place == Placement.DROP) {
-                ppos = pos.subtract(centerOffset.getX(), -def.offset - yoff - minY[0] + 1, centerOffset.getZ());
+                ppos = new Vector(centerOffset.getX(), -def.offset - yoff - minY[0] + 1, centerOffset.getZ());
             }
             else if (place == Placement.BOTTOM) {
-                ppos = pos.subtract(centerOffset.getX(), -def.offset -yoff + 1, centerOffset.getZ());
+                ppos = new Vector(centerOffset.getX(), -def.offset -yoff + 1, centerOffset.getZ());
             }
             else { // Else, default is CENTER (same as clipboard brush
-                ppos = pos.subtract(centerOffset.getX(), centerOffset.getY() - def.offset - yoff + 1, centerOffset.getZ());
+                ppos = new Vector(centerOffset.getX(), centerOffset.getY() - def.offset - yoff + 1, centerOffset.getZ());
             }
+            ppos = trans.apply(ppos);
+            ppos = pos.subtract(ppos);
+
             if (!replaceall) {
                 editsession.setMask(new BlockMask(editsession, new BaseBlock(BlockID.AIR, -1)));
             }
@@ -279,18 +284,18 @@ public class SchematicBrush extends JavaPlugin {
         }
     }
     
-    private void rotate2D(ClipboardHolder cliph, Rotation rot) {
-        AffineTransform transform = new com.sk89q.worldedit.math.transform.AffineTransform();
-        transform = transform.rotateY(rot.ordinal() * 90);
-        cliph.setTransform(cliph.getTransform().combine(transform));
+    private AffineTransform rotate2D(AffineTransform trans, Rotation rot) {
+        return trans.rotateY(rot.ordinal() * 90);
     }
     
-    private void flip(ClipboardHolder cliph, Direction dir) {
-        AffineTransform transform = new AffineTransform();
-        transform = transform.scale(dir.toVector().positive().multiply(-2).add(1, 1, 1));
-        cliph.setTransform(cliph.getTransform().combine(transform));
+    private AffineTransform flip(AffineTransform trans, Direction dir) {
+        return trans.scale(dir.toVector().positive().multiply(-2).add(1,1,1));
     }
-   
+
+    private AffineTransform doOffset(AffineTransform trans, Vector off) {
+        return trans.translate(off.multiply(-1));
+    }
+
     public SchematicBrush() {
     }
     
