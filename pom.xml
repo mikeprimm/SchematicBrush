@@ -50,20 +50,25 @@
 			<id>dynmap-repo</id>
 			<url>http://repo.mikeprimm.com/</url>
 		</repository>
+	    <repository>
+	      <id>sk89q-snapshots</id>
+	      <url>http://maven.sk89q.com/artifactory/repo</url>
+	      <snapshots>
+	        <enabled>true</enabled> <!-- snapshots enabled: we declare a SNAPSHOT repository because we need to download a SNAPSHOT dependency -->
+	      </snapshots>
+	    </repository>
 	</repositories>
 
 	<dependencies>
 		<dependency>
-			<groupId>org.bukkit</groupId>
-			<artifactId>bukkit</artifactId>
-			<version>1.7.10-R0.1-SNAPSHOT</version>
+			<groupId>org.spigotmc</groupId>
+			<artifactId>spigot</artifactId>
+            <version>1.8.8-R0.1-SNAPSHOT</version>
 		</dependency>
 		<dependency>
-			<groupId>com.sk89q</groupId>
-			<artifactId>worldedit</artifactId>
-			<version>6.0</version>
-			<scope>system</scope>
-			<systemPath>${project.basedir}/worldedit-bukkit-6.0.jar</systemPath>
+			<groupId>com.sk89q.worldedit</groupId>
+			<artifactId>worldedit-bukkit</artifactId>
+			<version>6.1.1-SNAPSHOT</version>
 		</dependency>
 	</dependencies>
 </project>
