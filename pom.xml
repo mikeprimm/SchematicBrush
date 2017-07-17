@@ -43,10 +43,10 @@
 	</properties>
 	<repositories>
 		<repository>
-			<releases>
-			</releases>
-			<snapshots>
-			</snapshots>
+            <id>spigot-repo</id>
+            <url>https://hub.spigotmc.org/nexus/content/groups/public/</url>
+		</repository>
+   		<repository>
 			<id>dynmap-repo</id>
 			<url>http://repo.mikeprimm.com/</url>
 		</repository>
@@ -61,10 +61,10 @@
 
 	<dependencies>
 		<dependency>
-			<groupId>org.spigotmc</groupId>
-			<artifactId>spigot</artifactId>
-            <version>1.8.8-R0.1-SNAPSHOT</version>
-		</dependency>
+          <groupId>org.spigotmc</groupId>
+          <artifactId>spigot-api</artifactId>
+          <version>1.8-R0.1-SNAPSHOT</version>
+        </dependency>
 		<dependency>
 			<groupId>com.sk89q.worldedit</groupId>
 			<artifactId>worldedit-bukkit</artifactId>
