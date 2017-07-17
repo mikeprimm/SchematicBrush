@@ -326,12 +326,6 @@ public class SchematicBrush extends JavaPlugin {
         
         // Load existing schematics
         loadSchematicSets();
-        // Kick off stats
-        try {
-            MetricsLite ml = new MetricsLite(this);
-            ml.start();
-        } catch (IOException iox) {
-        }
     }
     
     @Override
