@@ -1,0 +1,9 @@
+[{
+    "modid": "schematicbrush",
+    "name": "SchematicBrush",
+    "version":  "${project.version}-${BUILD_NUMBER}",
+    "description": "Schematic brush enhancement for WorldEdit",
+    "authorList": [
+		"mikeprimm"
+    ]
+}]

@@ -9,16 +9,14 @@
 				<directory>src/main/resources</directory>
 				<filtering>true</filtering>
 				<includes>
-					<include>*.yml</include>
-					<include>*.txt</include>
+					<include>mcmod.info</include>
 				</includes>
 			</resource>
 			<resource>
 				<directory>src/main/resources</directory>
 				<filtering>false</filtering>
 				<excludes>
-					<exclude>*.yml</exclude>
-					<exclude>*.txt</exclude>
+					<exclude>mcmod.info</exclude>
 				</excludes>
 			</resource>
 		</resources>
@@ -42,14 +40,6 @@
 		<BUILD_NUMBER>Dev${timestamp}</BUILD_NUMBER>
 	</properties>
 	<repositories>
-		<repository>
-            <id>spigot-repo</id>
-            <url>https://hub.spigotmc.org/nexus/content/groups/public/</url>
-		</repository>
-   		<repository>
-			<id>dynmap-repo</id>
-			<url>http://repo.mikeprimm.com/</url>
-		</repository>
 	    <repository>
 	      <id>sk89q-snapshots</id>
 	      <url>http://maven.sk89q.com/artifactory/repo</url>
@@ -57,17 +47,26 @@
 	        <enabled>true</enabled> <!-- snapshots enabled: we declare a SNAPSHOT repository because we need to download a SNAPSHOT dependency -->
 	      </snapshots>
 	    </repository>
+      	<repository>
+  			<id>sponge</id>
+  			<url>https://repo.spongepowered.org/maven</url>
+  		</repository>
 	</repositories>
 
 	<dependencies>
 		<dependency>
-          <groupId>org.spigotmc</groupId>
-          <artifactId>spigot-api</artifactId>
-          <version>1.8-R0.1-SNAPSHOT</version>
-        </dependency>
+			<groupId>com.sk89q.worldedit</groupId>
+			<artifactId>worldedit-sponge</artifactId>
+			<version>6.1.7-SNAPSHOT</version>
+		</dependency>
+		<dependency>
+			<groupId>org.spongepowered</groupId>
+			<artifactId>spongeapi</artifactId>
+			<version>6.0.0</version>
+		</dependency>
 		<dependency>
 			<groupId>com.sk89q.worldedit</groupId>
-			<artifactId>worldedit-bukkit</artifactId>
+			<artifactId>worldedit-core</artifactId>
 			<version>6.1.1-SNAPSHOT</version>
 		</dependency>
 	</dependencies>

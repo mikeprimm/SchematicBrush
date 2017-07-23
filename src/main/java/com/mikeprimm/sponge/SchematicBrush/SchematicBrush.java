@@ -1,40 +1,49 @@
-package com.mikeprimm.bukkit.SchematicBrush;
+package com.mikeprimm.sponge.SchematicBrush;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileFilter;
 import java.io.FileInputStream;
+import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Random;
-import java.util.Set;
 import java.util.TreeSet;
-import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandSender;
-import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.plugin.Plugin;
-import org.bukkit.plugin.java.JavaPlugin;
+import javax.inject.Inject;
 
-import com.sk89q.minecraft.util.commands.CommandsManager;
-import com.sk89q.worldedit.regions.CuboidRegion;
-import com.sk89q.worldedit.regions.Region;
-import com.sk89q.worldedit.session.ClipboardHolder;
-import com.sk89q.worldedit.session.PasteBuilder;
-import com.sk89q.worldedit.util.Direction;
-import com.sk89q.worldedit.util.io.file.FilenameException;
-import com.sk89q.worldedit.world.registry.WorldData;
+import org.slf4j.Logger;
+import org.spongepowered.api.Sponge;
+import org.spongepowered.api.command.CommandException;
+import org.spongepowered.api.command.CommandResult;
+import org.spongepowered.api.command.CommandSource;
+import org.spongepowered.api.command.args.CommandContext;
+import org.spongepowered.api.command.args.GenericArguments;
+import org.spongepowered.api.command.spec.CommandExecutor;
+import org.spongepowered.api.command.spec.CommandSpec;
+import org.spongepowered.api.config.ConfigDir;
+import org.spongepowered.api.config.DefaultConfig;
+import org.spongepowered.api.event.Listener;
+import org.spongepowered.api.event.game.state.GamePreInitializationEvent;
+import org.spongepowered.api.event.game.state.GameStartedServerEvent;
+import org.spongepowered.api.plugin.Plugin;
+import org.spongepowered.api.plugin.PluginContainer;
+import org.spongepowered.api.text.Text;
+
+import com.google.common.reflect.TypeToken;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.EmptyClipboardException;
 import com.sk89q.worldedit.LocalSession;
@@ -44,7 +53,6 @@ import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.WorldEditException;
 import com.sk89q.worldedit.blocks.BaseBlock;
 import com.sk89q.worldedit.blocks.BlockID;
-import com.sk89q.worldedit.bukkit.WorldEditPlugin;
 import com.sk89q.worldedit.command.tool.BrushTool;
 import com.sk89q.worldedit.command.tool.InvalidToolBindException;
 import com.sk89q.worldedit.command.tool.brush.Brush;
@@ -57,11 +65,41 @@ import com.sk89q.worldedit.extent.clipboard.io.ClipboardReader;
 import com.sk89q.worldedit.function.mask.BlockMask;
 import com.sk89q.worldedit.function.operation.Operations;
 import com.sk89q.worldedit.math.transform.AffineTransform;
+import com.sk89q.worldedit.regions.CuboidRegion;
+import com.sk89q.worldedit.regions.Region;
+import com.sk89q.worldedit.session.ClipboardHolder;
+import com.sk89q.worldedit.session.PasteBuilder;
+import com.sk89q.worldedit.sponge.SpongeWorldEdit;
+import com.sk89q.worldedit.util.Direction;
+import com.sk89q.worldedit.util.io.Closer;
+import com.sk89q.worldedit.util.io.file.FilenameException;
+import com.sk89q.worldedit.world.registry.WorldData;
 
-public class SchematicBrush extends JavaPlugin {
-    public Logger log;
+import ninja.leaping.configurate.ConfigurationNode;
+import ninja.leaping.configurate.commented.CommentedConfigurationNode;
+import ninja.leaping.configurate.loader.ConfigurationLoader;
+import ninja.leaping.configurate.objectmapping.ObjectMappingException;
+import ninja.leaping.configurate.yaml.YAMLConfigurationLoader;
+
+@Plugin(id = "schematicbrush")
+public class SchematicBrush {
+	@Inject private Logger logger;
+    @Inject private PluginContainer plugin;
+    @Inject @ConfigDir(sharedRoot = false) private File configDir;
+
+    @Inject
+    @DefaultConfig(sharedRoot = false)
+    private File configuration;
+
+    @Inject
+    @DefaultConfig(sharedRoot = false)
+    private ConfigurationLoader<CommentedConfigurationNode> configManager;
+
+    private ConfigurationNode configNode;
+    
+    public SpongeWorldEdit wep;
     public WorldEdit we;
-    public WorldEditPlugin wep;
+    
     public static final int DEFAULT_WEIGHT = -1;
 
     public static enum Flip {
@@ -79,7 +117,6 @@ public class SchematicBrush extends JavaPlugin {
         CENTER, BOTTOM, DROP
     }
     
-    public CommandsManager<CommandSender> cmdmgr;
     private static Random rnd = new Random();
 
     public static class SchematicDef {
@@ -299,186 +336,221 @@ public class SchematicBrush extends JavaPlugin {
     public SchematicBrush() {
     }
     
-    /* On disable, stop doing our function */
-    public void onDisable() {
-        
-    }
+    @Listener
+    public void onGamePreInitialization(GamePreInitializationEvent e){
+        logger.info("SchematicBrush v" + plugin.getVersion() + " loaded");
 
-    public void onEnable() {
-        log = this.getLogger();
+        // Intialize config file, if needed
+    	try {
+    		if (configuration.exists() == false) {
+				configuration.createNewFile();
+				
+				File yamlfile = new File(configDir, "config.yml");
+				if (yamlfile.exists()) {
+					YAMLConfigurationLoader ycl = YAMLConfigurationLoader.builder().setFile(yamlfile).build();
+					configNode = ycl.load();
+				}
+				else {
+					configNode = configManager.load();
+					configNode.getNode("schematic-sets").setValue(configNode.getAppendedNode());
+				}
+				configManager.save(configNode);
+    		}
+    		configNode = configManager.load();
+		} catch (IOException e1) {
+			logger.error("Error loading configuration");
+		}
         
-        log.info("SchematicBrush v" + this.getDescription().getVersion() + " loaded");
-
-        final FileConfiguration cfg = getConfig();
-        cfg.options().copyDefaults(true);   /* Load defaults, if needed */
-        this.saveConfig();  /* Save updates, if needed */
-    
-        Plugin wedit = this.getServer().getPluginManager().getPlugin("WorldEdit");
+        PluginContainer wedit = Sponge.getPluginManager().getPlugin("worldedit").orElse(null);
         if (wedit == null) {
-            log.info("WorldEdit not found!");
+            logger.info("WorldEdit not found!");
             return;
         }
-        wep = (WorldEditPlugin) wedit;
-        we = wep.getWorldEdit();
+        wep = (SpongeWorldEdit) wedit.getInstance().orElse(null);
+        if (wep != null) {
+        	we = WorldEdit.getInstance();
+        }
+
+        // Register commands
+        Sponge.getCommandManager().register(this, CommandSpec.builder()
+                .description(Text.of("Set schematic brush."))
+                .permission(plugin.getId() + ".brush.use")
+                .executor(new CommandSCHBR())
+                .arguments(GenericArguments.allOf(GenericArguments.string(Text.of("args"))))
+                .build(), Arrays.asList("schbr"));
+        Sponge.getCommandManager().register(this, CommandSpec.builder()
+                .description(Text.of("Set schematic"))
+                .permission(plugin.getId() + ".schset.base")
+                .arguments(GenericArguments.allOf(GenericArguments.string(Text.of("args"))))
+                .executor(new CommandSCHSET())
+                .build(), Arrays.asList("schset"));
+        Sponge.getCommandManager().register(this, CommandSpec.builder()
+                .description(Text.of("List schematic brushes."))
+                .permission(plugin.getId() + ".schlist.base")
+                .arguments(GenericArguments.allOf(GenericArguments.string(Text.of("args"))))
+                .executor(new CommandSCHLIST())
+                .build(), Arrays.asList("schlist"));
+
+    }
+    
+    @Listener
+    public void onGameStartedServer(GameStartedServerEvent e){
         // Initialize bo2 directory, if needed
         File bo2dir = this.getDirectoryForFormat("bo2");
         bo2dir.mkdirs();
         
         // Load existing schematics
         loadSchematicSets();
+        // Disable cache
+        treecache = null;
     }
     
-    @Override
-    public boolean onCommand(CommandSender sender, Command cmd, String commandLabel, String[] args) {
-        if (cmd.getName().equals("/schbr")) {
-            handleSCHBRCommand(sender, cmd, args);
-            return true;
-        }
-        else if (cmd.getName().equals("/schset")) {
-            handleSCHSETCommand(sender, cmd, args);
-            return true;
-        }
-        else if (cmd.getName().equals("/schlist")) {
-            handleSCHLISTCommand(sender, cmd, args);
-            return true;
-        }
-        return false;
-    }    
-    
-    private boolean handleSCHBRCommand(CommandSender sender, Command cmd, String[] args) {
-        Actor actor = wep.wrapCommandSender(sender);
-        if (!(actor instanceof Player)) {
-            sender.sendMessage("This can only be used by players");
-            return true;
-        }
-        Player player = (Player) actor;
-        // Test for command access
-        if (!player.hasPermission("schematicbrush.brush.use")) {
-            sender.sendMessage("You do not have access to this command");
-            return true;
-        }
-        if (args.length < 1) {
-            player.print("Schematic brush requires &set-id or one or more schematic patterns");
-            return false;
-        }
-        String setid = null;
-        SchematicSet ss = null;
-        if (args[0].startsWith("&")) {  // If set ID
-            if (player.hasPermission("schematicbrush.set.use") == false) {
-                player.printError("Not permitted to use schematic sets");
-                return true;
-            }
-            setid = args[0].substring(1);
-            ss = sets.get(setid);
-            if (ss == null) {
-                player.print("Schematic set '" + setid + "' not found");
-                return true;
-            }
-        }
-        else {
-            ArrayList<SchematicDef> defs = new ArrayList<SchematicDef>();
-            for (int i = 0; i < args.length; i++) {
-                if (args[i].startsWith("-")) { // Option
-                }
-                else {
-                    SchematicDef sd = parseSchematic(player, args[i]);
-                    if (sd == null) {
-                        player.print("Invalid schematic definition: " + args[i]);
-                        return true;
-                    }
-                    defs.add(sd);
-                }
-            }
-            ss = new SchematicSet(null, null, defs);
-        }
-        boolean skipair = true;
-        boolean replaceall = false;
-        int yoff = 0;
-        Placement place = Placement.CENTER;
-        for (int i = 0; i < args.length; i++) {
-            if (args[i].startsWith("-")) { // Option
-                if (args[i].equals("-incair")) {
-                    skipair = false;
-                }
-                else if (args[i].equals("-replaceall")) {
-                    replaceall = true;
-                }
-                else if (args[i].startsWith("-yoff:")) {
-                    String offval = args[i].substring(args[i].indexOf(':') + 1);
-                    try {
-                        yoff = Integer.parseInt(offval);
-                    } catch (NumberFormatException nfx) {
-                        player.printError("Bad y-offset value: " + offval);
-                    }
-                }
-                else if (args[i].startsWith("-place:")) {
-                    String pval = args[i].substring(args[i].indexOf(':') + 1).toUpperCase();
-                    place = Placement.valueOf(pval);
-                    if (place == null) {
-                        place = Placement.CENTER;
-                        player.printError("Bad place value (" + pval + ") - using CENTER");
-                    }
-                }
-            }
-        }
-        // Connect to world edit session
-        LocalSession session = we.getSessionManager().get(player);
-
-        SchematicBrushInstance sbi = new SchematicBrushInstance();
-        sbi.set = ss;
-        sbi.player = player;
-        sbi.skipair = skipair;
-        sbi.yoff = yoff;
-        sbi.place = place;
-        sbi.replaceall = replaceall;
-        // Get brush tool
-        BrushTool tool;
-        try {
-            tool = session.getBrushTool(player.getItemInHand());
-            tool.setBrush(sbi, "schematicbrush.brush.use");
-            player.print("Schematic brush set");
-        } catch (InvalidToolBindException e) {
-            player.print(e.getMessage());
-        }
-        
-        return true;
+    public class CommandSCHBR implements CommandExecutor{
+    	public CommandSCHBR(){
+    	}
+    	@Override
+    	public CommandResult execute(CommandSource sender, CommandContext ctx) throws CommandException {
+    		Actor actor = wep.wrapCommandSource(sender);
+    		if (!(actor instanceof Player)) {
+    			sender.sendMessage(Text.of("This can only be used by players"));
+    			return CommandResult.empty();
+    		}
+    		Player player = (Player) actor;
+    		// Test for command access
+    		if (!player.hasPermission("schematicbrush.brush.use")) {
+    			sender.sendMessage(Text.of("You do not have access to this command"));
+    			return CommandResult.empty();
+    		}
+    		Collection<String> argstr = ctx.<String>getAll("args");
+    		String[] args = argstr.toArray(new String[0]);
+    		if (args.length < 1) {
+    			player.print("Schematic brush requires &set-id or one or more schematic patterns");
+    			return CommandResult.empty();
+    		}
+    		String setid = null;
+    		SchematicSet ss = null;
+    		if (args[0].startsWith("&")) {  // If set ID
+    			if (player.hasPermission("schematicbrush.set.use") == false) {
+    				player.printError("Not permitted to use schematic sets");
+    				return CommandResult.empty();
+    			}
+    			setid = args[0].substring(1);
+    			ss = sets.get(setid);
+    			if (ss == null) {
+    				player.print("Schematic set '" + setid + "' not found");
+    				return CommandResult.empty();
+    			}
+    		}
+    		else {
+    			ArrayList<SchematicDef> defs = new ArrayList<SchematicDef>();
+    			for (int i = 0; i < args.length; i++) {
+    				if (args[i].startsWith("-")) { // Option
+    				}
+    				else {
+    					SchematicDef sd = parseSchematic(player, args[i]);
+    					if (sd == null) {
+    						player.print("Invalid schematic definition: " + args[i]);
+    						return CommandResult.empty();
+    					}
+    					defs.add(sd);
+    				}
+    			}
+    			ss = new SchematicSet(null, null, defs);
+    		}
+    		boolean skipair = true;
+    		boolean replaceall = false;
+    		int yoff = 0;
+    		Placement place = Placement.CENTER;
+    		for (int i = 0; i < args.length; i++) {
+    			if (args[i].startsWith("-")) { // Option
+    				if (args[i].equals("-incair")) {
+    					skipair = false;
+    				}
+    				else if (args[i].equals("-replaceall")) {
+    					replaceall = true;
+    				}
+    				else if (args[i].startsWith("-yoff:")) {
+    					String offval = args[i].substring(args[i].indexOf(':') + 1);
+    					try {
+    						yoff = Integer.parseInt(offval);
+    					} catch (NumberFormatException nfx) {
+    						player.printError("Bad y-offset value: " + offval);
+    					}
+    				}
+    				else if (args[i].startsWith("-place:")) {
+    					String pval = args[i].substring(args[i].indexOf(':') + 1).toUpperCase();
+    					place = Placement.valueOf(pval);
+    					if (place == null) {
+    						place = Placement.CENTER;
+    						player.printError("Bad place value (" + pval + ") - using CENTER");
+    					}
+    				}
+    			}
+    		}
+    		// Connect to world edit session
+    		LocalSession session = wep.getSession((org.spongepowered.api.entity.living.player.Player) sender);
+    		SchematicBrushInstance sbi = new SchematicBrushInstance();
+    		sbi.set = ss;
+    		sbi.player = player;
+    		sbi.skipair = skipair;
+    		sbi.yoff = yoff;
+    		sbi.place = place;
+    		sbi.replaceall = replaceall;
+    		// Get brush tool
+    		BrushTool tool;
+    		try {
+    			tool = session.getBrushTool(player.getItemInHand());
+    			tool.setBrush(sbi, "schematicbrush.brush.use");
+    			player.print("Schematic brush set");
+    		} catch (InvalidToolBindException e) {
+    			player.print(e.getMessage());
+    		}
+    		return CommandResult.success();
+    	}
     }
-
-    private boolean handleSCHSETCommand(CommandSender sender, Command cmd, String[] args) {
-        if (args.length < 1) {  // Not enough arguments
-            sender.sendMessage("  <command> argument required: list, create, get, delete, append, remove, setdesc");
-            return false;
-        }
-        // Wrap sender
-        Actor player = wep.wrapCommandSender(sender);
-        // Test for command access
-        if (!player.hasPermission("schematicbrush.set." + args[0])) {
-            sender.sendMessage("You do not have access to this command");
-            return true;
-        }
-        if (args[0].equals("list")) {
-            return handleSCHSETList(player, args);
-        }
-        else if (args[0].equals("create")) {
-            return handleSCHSETCreate(player, args);
-        }
-        else if (args[0].equals("delete")) {
-            return handleSCHSETDelete(player, args);
-        }
-        else if (args[0].equals("append")) {
-            return handleSCHSETAppend(player, args);
-        }
-        else if (args[0].equals("get")) {
-            return handleSCHSETGet(player, args);
-        }
-        else if (args[0].equals("remove")) {
-            return handleSCHSETRemove(player, args);
-        }
-        else if (args[0].equals("setdesc")) {
-            return handleSCHSETSetDesc(player, args);
-        }
-        
-        return false;
+    	
+    public class CommandSCHSET implements CommandExecutor{
+    	public CommandSCHSET(){
+    	}
+    	@Override
+    	public CommandResult execute(CommandSource sender, CommandContext ctx) throws CommandException {
+    		Collection<String> argstr = ctx.<String>getAll("args");
+    		String[] args = argstr.toArray(new String[0]);
+    		if (args.length < 1) {  // Not enough arguments
+    			sender.sendMessage(Text.of("  <command> argument required: list, create, get, delete, append, remove, setdesc"));
+        		return CommandResult.empty();
+    		}
+    		// Wrap sender
+    		Actor player = wep.wrapCommandSource(sender);
+    		// Test for command access
+    		if (!player.hasPermission("schematicbrush.set." + args[0])) {
+    			player.printError("You do not have access to this command");
+        		return CommandResult.empty();
+    		}
+    		boolean rslt = false;
+    		if (args[0].equals("list")) {
+    			rslt = handleSCHSETList(player, args);
+    		}
+    		else if (args[0].equals("create")) {
+    			rslt = handleSCHSETCreate(player, args);
+    		}
+    		else if (args[0].equals("delete")) {
+    			rslt = handleSCHSETDelete(player, args);
+    		}
+    		else if (args[0].equals("append")) {
+    			rslt = handleSCHSETAppend(player, args);
+    		}
+    		else if (args[0].equals("get")) {
+    			rslt = handleSCHSETGet(player, args);
+    		}
+    		else if (args[0].equals("remove")) {
+    			rslt = handleSCHSETRemove(player, args);
+    		}
+    		else if (args[0].equals("setdesc")) {
+    			rslt = handleSCHSETSetDesc(player, args);
+    		}
+    		return (rslt?CommandResult.success():CommandResult.empty());
+    	}
     }
     
     private boolean handleSCHSETList(Actor player, String[] args) {
@@ -680,53 +752,61 @@ public class SchematicBrush extends JavaPlugin {
     
     private File getDirectoryForFormat(String fmt) {
         if (fmt.equals("schematic")) {  // Get from worldedit directory
-            return we.getWorkingDirectoryFile(we.getConfiguration().saveDir);
+            return new File(wep.getWorkingDir(), wep.getPlatform().getConfiguration().saveDir);
         }
         else {  // Else, our own type specific directory
-            return new File(this.getDataFolder(), fmt);
+            return new File(this.configDir, fmt);
         }
     }
 
     
     private static final int LINES_PER_PAGE = 10;
-    private boolean handleSCHLISTCommand(CommandSender sender, Command cmd, String[] args) {
-        // Wrap sender
-        Actor actor = wep.wrapCommandSender(sender);
-        if ((actor instanceof Player) == false) {
-            sender.sendMessage("Only usable by player");
-            return true;
-        }
-        Player player = (Player) actor;
-        // Test for command access
-        if (!player.hasPermission("schematicbrush.list")) {
-            sender.sendMessage("You do not have access to this command");
-            return true;
-        }
-        int page = 1;
-        String fmt = "schematic";
-        for (int i = 0; i < args.length; i++) {
-            try {
-                page = Integer.parseInt(args[i]);
-            } catch (NumberFormatException nfx) {
-                fmt = args[i];
-            }
-        }
-        File dir = getDirectoryForFormat(fmt);  // Get directory for extension
-        if (dir == null) {
-            sender.sendMessage("Invalid format: " + fmt);
-            return true;
-        }
-        final Pattern p = Pattern.compile(".*\\." + fmt);
-        List<String> files = getMatchingFiles(dir, p);
-        Collections.sort(files);
-        int cnt = (files.size() + LINES_PER_PAGE - 1) / LINES_PER_PAGE;  // Number of pages
-        if (page < 1) page = 1;
-        if (page > cnt) page = cnt;
-        sender.sendMessage("Page " + page + " of " + cnt + " (" + files.size() + " files)");
-        for (int i = (page - 1) * LINES_PER_PAGE; (i < (page * LINES_PER_PAGE)) && (i < files.size()); i++) {
-            sender.sendMessage(files.get(i));
-        }
-        return true;
+    
+    public class CommandSCHLIST implements CommandExecutor{
+    	public CommandSCHLIST(){
+    	}
+    	@Override
+    	public CommandResult execute(CommandSource sender, CommandContext ctx) throws CommandException {
+    		Collection<String> argstr = ctx.<String>getAll("args");
+    		String[] args = argstr.toArray(new String[0]);
+    		// Wrap sender
+    		Actor actor = wep.wrapCommandSource(sender);
+    		if ((actor instanceof Player) == false) {
+    			actor.printError("Only usable by player");
+    			return CommandResult.empty();
+    		}
+    		Player player = (Player) actor;
+    		// Test for command access
+    		if (!player.hasPermission("schematicbrush.list")) {
+    			player.printError("You do not have access to this command");
+    			return CommandResult.empty();
+    		}
+    		int page = 1;
+    		String fmt = "schematic";
+    		for (int i = 0; i < args.length; i++) {
+    			try {
+    				page = Integer.parseInt(args[i]);
+    			} catch (NumberFormatException nfx) {
+    				fmt = args[i];
+    			}
+    		}
+    		File dir = getDirectoryForFormat(fmt);  // Get directory for extension
+    		if (dir == null) {
+    			actor.printError("Invalid format: " + fmt);
+    			return CommandResult.empty();
+    		}
+    		final Pattern p = Pattern.compile(".*\\." + fmt);
+    		List<String> files = getMatchingFiles(dir, p);
+    		Collections.sort(files);
+    		int cnt = (files.size() + LINES_PER_PAGE - 1) / LINES_PER_PAGE;  // Number of pages
+    		if (page > cnt) page = cnt;
+    		if (page < 1) page = 1;
+    		actor.print("Page " + page + " of " + cnt + " (" + files.size() + " files)");
+    		for (int i = (page - 1) * LINES_PER_PAGE; (i < (page * LINES_PER_PAGE)) && (i < files.size()); i++) {
+    			actor.print(files.get(i));
+    		}
+    		return CommandResult.success();
+    	}
     }
         
     private static final Pattern schsplit = Pattern.compile("[@:#^]");
@@ -844,22 +924,26 @@ public class SchematicBrush extends JavaPlugin {
     private void loadSchematicSets() {
         sets.clear(); // Reset sets
         
-        Actor console = wep.wrapCommandSender(getServer().getConsoleSender());
-        FileConfiguration cfg = this.getConfig();
-        ConfigurationSection sect = cfg.getConfigurationSection("schematic-sets");
+        Actor console = wep.wrapCommandSource(Sponge.getServer().getConsole());
+
+        ConfigurationNode sect = configNode.getNode("schematic-sets");
         if (sect == null) {
             return;
         }
-        Set<String> keys = sect.getKeys(false);
-        if (keys == null) {
-            return;
-        }
-        for (String key : keys) {
-            ConfigurationSection schset = sect.getConfigurationSection(key);
+        Map<Object, ? extends ConfigurationNode> map = sect.getChildrenMap();
+        for (Entry<Object, ? extends ConfigurationNode> entset : map.entrySet()) {
+        	String key = entset.getKey().toString();
+        	logger.info("Process " + key + "...");
+        	ConfigurationNode schset = entset.getValue();
             if (schset == null) continue;
-            String desc = schset.getString("desc","");
-            List<String> schematicsets = schset.getStringList("sets");
-            if (sets == null) continue;
+            String desc = schset.getNode("desc").getString("");
+            List<String> schematicsets;
+			try {
+				schematicsets = schset.getNode("sets").getList(TypeToken.of(String.class));
+			} catch (ObjectMappingException e) {
+				schematicsets = Collections.emptyList();
+			}
+            if (schematicsets == null) continue;
             ArrayList<SchematicDef> schlist = new ArrayList<SchematicDef>();
             for (String set: schematicsets) {
                 SchematicDef def = parseSchematic(console, set);
@@ -867,11 +951,11 @@ public class SchematicBrush extends JavaPlugin {
                     schlist.add(def);
                 }
                 else {
-                    getLogger().warning("Error loading schematic '" + set + "' for set '" + key + "' - removed from set");
+                    logger.warn("Error loading schematic '" + set + "' for set '" + key + "' - removed from set");
                 }
             }
             if (schlist.isEmpty()) {
-                getLogger().warning("Error loading schematic set '" + key + "' - no valid schematics - removed");
+                logger.warn("Error loading schematic set '" + key + "' - no valid schematics - removed");
                 continue;
             }
             // Build schematic set
@@ -880,27 +964,28 @@ public class SchematicBrush extends JavaPlugin {
         }
     }
     private void saveSchematicSets() {        
-        FileConfiguration cfg = this.getConfig();
-        ConfigurationSection sect = cfg.getConfigurationSection("schematic-sets");
-        if (sect == null) {
-            sect = cfg.createSection("schematic-sets");
-        }
-        for (SchematicSet ss : sets.values()) {
-            sect.set(ss.name + ".desc", ss.desc);
-            ArrayList<String> lst = new ArrayList<String>();
-            for (SchematicDef sd : ss.schematics) {
-                lst.add(sd.toString());
-            }
-            sect.set(ss.name + ".sets", lst);
-        }
-        for (String k : sect.getKeys(false)) {
-            if (sets.containsKey(k) == false) { // No longer good set?
-                sect.set(k, null);
-            }
-        }
-        cfg.set("schematic-sets",  sect);
-        
-        this.saveConfig();
+    	logger.info("saveSchematicSets");
+//        FileConfiguration cfg = this.getConfig();
+//        ConfigurationSection sect = cfg.getConfigurationSection("schematic-sets");
+//        if (sect == null) {
+//            sect = cfg.createSection("schematic-sets");
+//        }
+//        for (SchematicSet ss : sets.values()) {
+//            sect.set(ss.name + ".desc", ss.desc);
+//            ArrayList<String> lst = new ArrayList<String>();
+//            for (SchematicDef sd : ss.schematics) {
+//                lst.add(sd.toString());
+//            }
+//            sect.set(ss.name + ".sets", lst);
+//        }
+//        for (String k : sect.getKeys(false)) {
+//            if (sets.containsKey(k) == false) { // No longer good set?
+//                sect.set(k, null);
+//            }
+//        }
+//        cfg.set("schematic-sets",  sect);
+//        
+//        this.saveConfig();
     }    
 
     private List<String> getMatchingFiles(File dir, Pattern p) {
@@ -909,19 +994,37 @@ public class SchematicBrush extends JavaPlugin {
         return matches;
     }
     
-    private void getMatchingFiles(List<String> rslt, File dir, Pattern p, String path) {
-        File[] fl = dir.listFiles();
-        if (fl == null) return;
-        for (File f : fl) {
+    // Schematic tree cache - used during initialization
+    private Map<File, List<String>> treecache = new HashMap<File, List<String>>();
+    
+    private void buildTree(File dir, List<String> rslt, String path) {
+    	File[] lst = dir.listFiles();
+    	for (File f : lst) {
             String n = (path == null) ? f.getName() : (path + "/" + f.getName());
-            if (f.isDirectory()) {
-                getMatchingFiles(rslt, f, p, n);
-            }
-            else {
-                Matcher m = p.matcher(n);
-                if (m.matches()) {
-                    rslt.add(n);
-                }
+    		if (f.isDirectory()) {
+    			buildTree(f, rslt, n);
+    		}
+    		else {
+    			rslt.add(n);
+    		}
+    	}
+    }
+    
+    private void getMatchingFiles(List<String> rslt, File dir, final Pattern p, final String path) {
+    	List<String> flist = null;
+    	if (treecache != null) {
+    		flist = treecache.get(dir);	// See if cached
+    	}
+    	if (flist == null) {
+    		flist = new ArrayList<String>();
+    		buildTree(dir, flist, null);
+    		if (treecache != null) {
+    			treecache.put(dir, flist);
+    		}
+    	}
+    	for (String fn : flist) {
+    		if (p.matcher(fn).matches()) {
+                rslt.add(fn);
             }
         }
     }
@@ -967,6 +1070,7 @@ public class SchematicBrush extends JavaPlugin {
         }
         File f;
         boolean rslt = false;
+        Closer closer = Closer.create();
         try {
             f = we.getSafeOpenFile(null, dir, name, format);
             if (!f.exists()) {
@@ -991,8 +1095,9 @@ public class SchematicBrush extends JavaPlugin {
                 if (!filePath.substring(0, dirPath.length()).equals(dirPath)) {
                     return null;
                 } else {
-                    FileInputStream fis = new FileInputStream(f);
-                    BufferedInputStream bis = new BufferedInputStream(fis);
+                	logger.info("File(schematic)=" + f);
+                    FileInputStream fis = closer.register(new FileInputStream(f));
+                    BufferedInputStream bis = closer.register(new BufferedInputStream(fis));
                     ClipboardReader reader = fmt.getReader(bis);
 
                     WorldData worldData = player.getWorld().getWorldData();
@@ -1018,6 +1123,7 @@ public class SchematicBrush extends JavaPlugin {
             }
             // Else if BO2 file
             else if (format.equals("bo2")) {
+            	logger.info("File(bo2)=" + f);
                 Clipboard cc = loadBOD2File(f);
                 if (cc != null) {
                     WorldData worldData = player.getWorld().getWorldData();
@@ -1033,6 +1139,11 @@ public class SchematicBrush extends JavaPlugin {
             player.printError(e1.getMessage());
         } catch (IOException e) {
             player.printError("Error reading schematic '" + name + "' - " + e.getMessage());
+        } finally {
+            try {
+                closer.close();
+            } catch (IOException ignored) {
+            }
         }
 
         return (rslt)?name:null;
@@ -1127,7 +1238,7 @@ public class SchematicBrush extends JavaPlugin {
                 cc.setBlock(vv, new BaseBlock(ids[0], ids[1]));
             }
         } catch (WorldEditException e) {
-            log.info("WorldEdit exception: " + e.getMessage());
+            logger.info("WorldEdit exception: " + e.getMessage());
         } finally {
             in.close();
         }
