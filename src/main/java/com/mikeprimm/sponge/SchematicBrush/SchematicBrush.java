@@ -961,28 +961,28 @@ public class SchematicBrush {
         }
     }
     private void saveSchematicSets() {        
-    	logger.info("saveSchematicSets");
-//        FileConfiguration cfg = this.getConfig();
-//        ConfigurationSection sect = cfg.getConfigurationSection("schematic-sets");
-//        if (sect == null) {
-//            sect = cfg.createSection("schematic-sets");
-//        }
-//        for (SchematicSet ss : sets.values()) {
-//            sect.set(ss.name + ".desc", ss.desc);
-//            ArrayList<String> lst = new ArrayList<String>();
-//            for (SchematicDef sd : ss.schematics) {
-//                lst.add(sd.toString());
-//            }
-//            sect.set(ss.name + ".sets", lst);
-//        }
-//        for (String k : sect.getKeys(false)) {
-//            if (sets.containsKey(k) == false) { // No longer good set?
-//                sect.set(k, null);
-//            }
-//        }
-//        cfg.set("schematic-sets",  sect);
-//        
-//        this.saveConfig();
+        ConfigurationNode sect = configNode.getNode("schematic-sets");
+        for (SchematicSet ss : sets.values()) {
+        	ConfigurationNode newnode = sect.getNode(ss.name);
+        	newnode.getNode("desc").setValue(ss.desc);
+        	ArrayList<String> sets = new ArrayList<String>();
+        	for (SchematicDef s : ss.schematics) {
+        		sets.add(s.toString());
+        	}
+        	newnode.getNode("sets").setValue(sets);
+        }
+        // Remove missing children
+        Map<Object, ? extends ConfigurationNode> map = sect.getChildrenMap();
+        for (Object key : map.keySet()) {
+        	if (sets.containsKey(key) == false) {
+        		sect.removeChild(key);
+        	}
+        }
+        try {
+			configManager.save(configNode);
+		} catch (IOException e) {
+            logger.warn("Error saving configuration");
+		}
     }    
 
     private List<String> getMatchingFiles(File dir, Pattern p) {
