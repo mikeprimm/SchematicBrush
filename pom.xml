@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.mikeprimm</groupId>
   <artifactId>SchematicBrush</artifactId>
-  <version>0.5.3</version>
+  <version>0.6.0</version>
 	<build>
 		<resources>
 			<resource>
@@ -26,8 +26,8 @@
 				<artifactId>maven-compiler-plugin</artifactId>
 				<version>2.0.2</version>
 				<configuration>
-					<source>1.6</source>
-					<target>1.6</target>
+					<source>1.8</source>
+					<target>1.8</target>
 				</configuration>
 			</plugin>
 		</plugins>
@@ -40,14 +40,17 @@
 		<BUILD_NUMBER>Dev${timestamp}</BUILD_NUMBER>
 	</properties>
 	<repositories>
-	    <repository>
-	      <id>sk89q-snapshots</id>
-	      <url>http://maven.sk89q.com/artifactory/repo</url>
-	      <snapshots>
-	        <enabled>true</enabled> <!-- snapshots enabled: we declare a SNAPSHOT repository because we need to download a SNAPSHOT dependency -->
-	      </snapshots>
-	    </repository>
-      	<repository>
+        <repository>
+            <id>sk89q-snapshots</id>
+            <url>http://maven.sk89q.com/artifactory/repo</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+        <repository>
   			<id>sponge</id>
   			<url>https://repo.spongepowered.org/maven</url>
   		</repository>
@@ -55,14 +58,14 @@
 
 	<dependencies>
 		<dependency>
-			<groupId>com.sk89q.worldedit</groupId>
-			<artifactId>worldedit-sponge</artifactId>
-			<version>6.1.7-SNAPSHOT</version>
-		</dependency>
-		<dependency>
 			<groupId>org.spongepowered</groupId>
 			<artifactId>spongeapi</artifactId>
 			<version>6.0.0</version>
+		</dependency>
+		<dependency>
+			<groupId>com.sk89q.worldedit</groupId>
+			<artifactId>worldedit-sponge</artifactId>
+			<version>6.1.7-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>com.sk89q.worldedit</groupId>
