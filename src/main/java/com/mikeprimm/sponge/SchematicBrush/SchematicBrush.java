@@ -1092,7 +1092,6 @@ public class SchematicBrush {
                 if (!filePath.substring(0, dirPath.length()).equals(dirPath)) {
                     return null;
                 } else {
-                	logger.info("File(schematic)=" + f);
                     FileInputStream fis = closer.register(new FileInputStream(f));
                     BufferedInputStream bis = closer.register(new BufferedInputStream(fis));
                     ClipboardReader reader = fmt.getReader(bis);
@@ -1120,7 +1119,6 @@ public class SchematicBrush {
             }
             // Else if BO2 file
             else if (format.equals("bo2")) {
-            	logger.info("File(bo2)=" + f);
                 Clipboard cc = loadBOD2File(f);
                 if (cc != null) {
                     WorldData worldData = player.getWorld().getWorldData();
